@@ -124,6 +124,10 @@ dependencies {
     // Coroutines
     implementation(libs.coroutines.android)
 
+    // ML Kit Text Recognition (OCR)
+    implementation(libs.mlkit.text.recognition)
+    implementation(libs.coroutines.play.services)
+
     // Testing
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)

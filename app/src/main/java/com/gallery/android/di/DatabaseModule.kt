@@ -6,6 +6,7 @@ import com.gallery.android.data.local.database.GalleryDatabase
 import com.gallery.android.data.local.database.dao.AlbumDao
 import com.gallery.android.data.local.database.dao.FavoriteDao
 import com.gallery.android.data.local.database.dao.MediaDao
+import com.gallery.android.data.local.database.dao.OcrMetadataDao
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -21,6 +22,7 @@ object DatabaseModule {
     @Singleton
     fun provideDatabase(@ApplicationContext context: Context): GalleryDatabase =
         Room.databaseBuilder(context, GalleryDatabase::class.java, "gallery.db")
+            .addMigrations(GalleryDatabase.MIGRATION_1_2)
             .fallbackToDestructiveMigration()
             .build()
 
@@ -32,4 +34,7 @@ object DatabaseModule {
 
     @Provides
     fun provideFavoriteDao(db: GalleryDatabase): FavoriteDao = db.favoriteDao()
+
+    @Provides
+    fun provideOcrMetadataDao(db: GalleryDatabase): OcrMetadataDao = db.ocrMetadataDao()
 }
