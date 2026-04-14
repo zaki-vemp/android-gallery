@@ -14,7 +14,7 @@ import javax.inject.Inject
 
 data class SettingsUiState(
     val isDarkTheme: Boolean = false,
-    val useDynamicColor: Boolean = true,
+    val useDynamicColor: Boolean = false,
     val gridColumns: Int = 3,
 )
 
@@ -30,7 +30,7 @@ class SettingsViewModel @Inject constructor(
     val uiState: StateFlow<SettingsUiState> = dataStore.data.map { prefs ->
         SettingsUiState(
             isDarkTheme = prefs[DARK_THEME_KEY] ?: false,
-            useDynamicColor = prefs[DYNAMIC_COLOR_KEY] ?: true,
+            useDynamicColor = prefs[DYNAMIC_COLOR_KEY] ?: false,
             gridColumns = prefs[GRID_COLUMNS_KEY] ?: 3,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), SettingsUiState())

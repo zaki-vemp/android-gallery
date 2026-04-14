@@ -42,8 +42,8 @@ class MainActivity : ComponentActivity() {
             val DYNAMIC_COLOR_KEY = booleanPreferencesKey("dynamic_color")
             val isDarkTheme by dataStore.data.map { it[DARK_THEME_KEY] ?: false }
                 .collectAsStateWithLifecycle(isSystemInDarkTheme())
-            val isDynamic by dataStore.data.map { it[DYNAMIC_COLOR_KEY] ?: true }
-                .collectAsStateWithLifecycle(true)
+            val isDynamic by dataStore.data.map { it[DYNAMIC_COLOR_KEY] ?: false }
+                .collectAsStateWithLifecycle(false)
 
             GalleryTheme(darkTheme = isDarkTheme, dynamicColor = isDynamic) {
                 GalleryApp()

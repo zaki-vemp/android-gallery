@@ -6,6 +6,9 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.*
 import androidx.compose.foundation.shape.CircleShape
@@ -19,9 +22,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.input.pointer.PointerInputScope
+import androidx.compose.ui.input.pointer.positionChanged
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -32,6 +40,8 @@ import coil.size.Size
 import com.gallery.android.domain.model.MediaItem
 import com.gallery.android.domain.model.MediaType
 import com.gallery.android.utils.DateUtils
+import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 
 @OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
 @Composable
@@ -45,6 +55,8 @@ fun GalleryScreen(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     var showFilterDialog by remember { mutableStateOf(false) }
+    val gridState = rememberLazyGridState()
+    val coroutineScope = rememberCoroutineScope()
 
     val mediaList by if (customAlbumId != null) {
         viewModel.getMediaByCustomAlbum(customAlbumId).collectAsStateWithLifecycle(emptyList())
@@ -58,11 +70,26 @@ fun GalleryScreen(
         mediaList.filter { uiState.activeFilter.matches(it) }
     }
 
-    val grouped = remember(filteredMedia) {
-        filteredMedia.groupBy { DateUtils.formatGroupDate(it.dateAdded) }
+    val groupedEntries = remember(filteredMedia) {
+        filteredMedia.groupBy { DateUtils.formatGroupDate(it.dateAdded) }.entries.toList()
+    }
+
+    val timelineSections = remember(groupedEntries) {
+        var runningIndex = 0
+        groupedEntries.map { (dateLabel, items) ->
+            TimelineSection(label = dateLabel, itemIndex = runningIndex).also {
+                runningIndex += 1 + items.size
+            }
+        }
     }
 
     val isSelecting = uiState.selectedIds.isNotEmpty()
+    val activeTimelineIndex by remember(timelineSections, gridState) {
+        derivedStateOf {
+            timelineSections.indexOfLast { it.itemIndex <= gridState.firstVisibleItemIndex }
+                .coerceAtLeast(0)
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -108,30 +135,57 @@ fun GalleryScreen(
                 subtitle = if (uiState.activeFilter == GalleryFilter.ALL) null else uiState.activeFilter.label,
             )
         } else {
-            LazyVerticalGrid(
-                columns = GridCells.Fixed(uiState.gridColumns),
+            Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(padding),
-                contentPadding = PaddingValues(2.dp),
-                horizontalArrangement = Arrangement.spacedBy(2.dp),
-                verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
-                grouped.forEach { (dateLabel, items) ->
-                    item(key = dateLabel, span = { GridItemSpan(maxLineSpan) }) {
-                        DateHeader(dateLabel)
+                LazyVerticalGrid(
+                    state = gridState,
+                    columns = GridCells.Fixed(uiState.gridColumns),
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .pointerInput(uiState.gridColumns, isSelecting) {
+                            if (!isSelecting) {
+                                detectGridPinch(
+                                    currentColumns = uiState.gridColumns,
+                                    onColumnChange = viewModel::setGridColumns,
+                                )
+                            }
+                        },
+                    contentPadding = PaddingValues(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    groupedEntries.forEach { (dateLabel, items) ->
+                        item(key = dateLabel, span = { GridItemSpan(maxLineSpan) }) {
+                            DateHeader(dateLabel)
+                        }
+                        items(items = items, key = { it.id }) { media ->
+                            MediaThumbnail(
+                                media = media,
+                                isSelected = uiState.selectedIds.contains(media.id),
+                                onClick = {
+                                    if (isSelecting) viewModel.toggleSelection(media.id)
+                                    else onMediaClick(media.id)
+                                },
+                                onLongClick = { viewModel.toggleSelection(media.id) },
+                            )
+                        }
                     }
-                    items(items = items, key = { it.id }) { media ->
-                        MediaThumbnail(
-                            media = media,
-                            isSelected = uiState.selectedIds.contains(media.id),
-                            onClick = {
-                                if (isSelecting) viewModel.toggleSelection(media.id)
-                                else onMediaClick(media.id)
-                            },
-                            onLongClick = { viewModel.toggleSelection(media.id) },
-                        )
-                    }
+                }
+
+                if (timelineSections.size > 1) {
+                    DateTimelineScrubber(
+                        sections = timelineSections,
+                        activeIndex = activeTimelineIndex,
+                        modifier = Modifier.align(Alignment.CenterEnd),
+                        onScrubTo = { sectionIndex ->
+                            coroutineScope.launch {
+                                gridState.scrollToItem(timelineSections[sectionIndex].itemIndex)
+                            }
+                        },
+                    )
                 }
             }
         }
@@ -149,6 +203,11 @@ fun GalleryScreen(
     }
 }
 
+private data class TimelineSection(
+    val label: String,
+    val itemIndex: Int,
+)
+
 @Composable
 private fun DateHeader(date: String) {
     Box(
@@ -163,6 +222,135 @@ private fun DateHeader(date: String) {
             fontWeight = FontWeight.SemiBold,
             color = MaterialTheme.colorScheme.onSurface,
         )
+    }
+}
+
+@Composable
+private fun DateTimelineScrubber(
+    sections: List<TimelineSection>,
+    activeIndex: Int,
+    modifier: Modifier = Modifier,
+    onScrubTo: (Int) -> Unit,
+) {
+    var railHeightPx by remember { mutableIntStateOf(1) }
+    var isDragging by remember { mutableStateOf(false) }
+    var previewIndex by remember { mutableIntStateOf(activeIndex) }
+    val shownIndex = if (isDragging) previewIndex else activeIndex
+    val fraction = if (sections.size == 1) 0f else shownIndex.toFloat() / (sections.lastIndex).toFloat()
+
+    fun updateSection(offsetY: Float) {
+        if (railHeightPx <= 0) return
+        val index = ((offsetY / railHeightPx) * sections.lastIndex)
+            .roundToInt()
+            .coerceIn(0, sections.lastIndex)
+        if (previewIndex != index) {
+            previewIndex = index
+            onScrubTo(index)
+        }
+    }
+
+    Box(
+        modifier = modifier
+            .fillMaxHeight()
+            .width(76.dp)
+            .padding(vertical = 12.dp, horizontal = 6.dp)
+            .onSizeChanged { railHeightPx = it.height }
+            .pointerInput(sections) {
+                detectVerticalDragGestures(
+                    onDragStart = {
+                        isDragging = true
+                        updateSection(it.y)
+                    },
+                    onVerticalDrag = { change, _ ->
+                        change.consume()
+                        updateSection(change.position.y)
+                    },
+                    onDragEnd = { isDragging = false },
+                    onDragCancel = { isDragging = false },
+                )
+            }
+            .pointerInput(sections) {
+                detectTapGestures { offset ->
+                    isDragging = true
+                    updateSection(offset.y)
+                    isDragging = false
+                }
+            },
+    ) {
+        Box(
+            modifier = Modifier
+                .align(Alignment.CenterEnd)
+                .width(4.dp)
+                .fillMaxHeight()
+                .clip(CircleShape)
+                .background(MaterialTheme.colorScheme.outline.copy(alpha = 0.22f)),
+        )
+        Box(
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .offset {
+                    IntOffset(
+                        x = 0,
+                        y = ((railHeightPx - 24.dp.roundToPx()) * fraction).roundToInt(),
+                    )
+                }
+                .size(24.dp)
+                .clip(CircleShape)
+                .background(MaterialTheme.colorScheme.primary)
+                .border(3.dp, MaterialTheme.colorScheme.surface, CircleShape),
+        )
+
+        AnimatedVisibility(
+            visible = isDragging,
+            enter = fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .offset {
+                    IntOffset(
+                        x = 0,
+                        y = ((railHeightPx - 48.dp.roundToPx()) * fraction).roundToInt(),
+                    )
+                },
+        ) {
+            Surface(
+                shape = RoundedCornerShape(16.dp),
+                color = MaterialTheme.colorScheme.surface,
+                tonalElevation = 8.dp,
+                shadowElevation = 8.dp,
+            ) {
+                Text(
+                    text = sections[shownIndex].label,
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                )
+            }
+        }
+    }
+}
+
+private suspend fun PointerInputScope.detectGridPinch(
+    currentColumns: Int,
+    onColumnChange: (Int) -> Unit,
+    minColumns: Int = 2,
+    maxColumns: Int = 6,
+) {
+    var changedColumns = false
+    detectTransformGestures { _, _, zoom, _ ->
+        if (!changedColumns) {
+            when {
+                zoom > 1.08f && currentColumns > minColumns -> {
+                    onColumnChange(currentColumns - 1)
+                    changedColumns = true
+                }
+
+                zoom < 0.92f && currentColumns < maxColumns -> {
+                    onColumnChange(currentColumns + 1)
+                    changedColumns = true
+                }
+            }
+        }
     }
 }
 

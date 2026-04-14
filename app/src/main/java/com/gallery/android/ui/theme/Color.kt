@@ -2,23 +2,36 @@ package com.gallery.android.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-// Light palette
-val Purple40 = Color(0xFF6750A4)
-val PurpleGrey40 = Color(0xFF625B71)
-val Pink40 = Color(0xFF7D5260)
+val PrimaryLight = Color(0xFF2A6277)
+val OnPrimaryLight = Color(0xFFFFFFFF)
+val PrimaryContainerLight = Color(0xFFC6E8F7)
+val OnPrimaryContainerLight = Color(0xFF001F29)
+val SecondaryLight = Color(0xFF9A6B3A)
+val OnSecondaryLight = Color(0xFFFFFFFF)
+val SecondaryContainerLight = Color(0xFFFFDDBB)
+val TertiaryLight = Color(0xFF5D7B4A)
+val BackgroundLight = Color(0xFFF8F5EE)
+val SurfaceLight = Color(0xFFFFFBF4)
+val SurfaceVariantLight = Color(0xFFECE6DB)
+val CardLight = Color(0xFFF1EBE0)
+val InkLight = Color(0xFF191C20)
+val InkMutedLight = Color(0xFF5A6168)
+val OutlineLight = Color(0xFF737A83)
+val OutlineVariantLight = Color(0xFFC2C8CF)
 
-// Dark palette
-val Purple80 = Color(0xFFD0BCFF)
-val PurpleGrey80 = Color(0xFFCCC2DC)
-val Pink80 = Color(0xFFEFB8C8)
-
-// Surface colours
-val SurfaceLight = Color(0xFFFDFCFF)
-val SurfaceDark = Color(0xFF1C1B1F)
-val CardLight = Color(0xFFF6F5FA)
-val CardDark = Color(0xFF2B2930)
-
-// Accent
-val Accent = Color(0xFF6750A4)
-val AccentContainer = Color(0xFFEADDFF)
-val OnAccent = Color(0xFFFFFFFF)
+val PrimaryDark = Color(0xFF93C9E2)
+val OnPrimaryDark = Color(0xFF003546)
+val PrimaryContainerDark = Color(0xFF114A5D)
+val OnPrimaryContainerDark = Color(0xFFC6E8F7)
+val SecondaryDark = Color(0xFFE6BC8B)
+val OnSecondaryDark = Color(0xFF573F1D)
+val SecondaryContainerDark = Color(0xFF724F27)
+val TertiaryDark = Color(0xFFC0DCA8)
+val BackgroundDark = Color(0xFF0F1317)
+val SurfaceDark = Color(0xFF12171C)
+val SurfaceVariantDark = Color(0xFF242B33)
+val CardDark = Color(0xFF1A2027)
+val InkDark = Color(0xFFE2E8EE)
+val InkMutedDark = Color(0xFFB7C0C9)
+val OutlineDark = Color(0xFF8B949D)
+val OutlineVariantDark = Color(0xFF3A434C)

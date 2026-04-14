@@ -5,6 +5,7 @@ import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.ImageDecoder
 import android.graphics.pdf.PdfDocument
+import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
@@ -14,6 +15,7 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.*
@@ -35,6 +37,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.util.VelocityTracker
@@ -62,6 +65,7 @@ import com.gallery.android.domain.model.MediaItem
 import com.gallery.android.domain.model.MediaType
 import com.gallery.android.utils.DateUtils
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -262,6 +266,7 @@ fun MediaViewerScreen(
                     onTap = { showControls = !showControls },
                     onZoomStateChanged = { isZoomed -> canDismissBySwipe = !isZoomed },
                     bottomInset = videoBottomInset,
+                    showControls = showControls,
                 )
             }
         }
@@ -655,6 +660,7 @@ private fun MediaPage(
     onTap: () -> Unit,
     onZoomStateChanged: (Boolean) -> Unit,
     bottomInset: Dp,
+    showControls: Boolean,
 ) {
     if (media.mediaType == MediaType.VIDEO) {
         LaunchedEffect(isCurrentPage) {
@@ -662,7 +668,7 @@ private fun MediaPage(
                 onZoomStateChanged(false)
             }
         }
-        VideoPlayer(uri = media.uri, onTap = onTap, bottomInset = bottomInset)
+        VideoPlayer(uri = media.uri, onTap = onTap, bottomInset = bottomInset, showControls = showControls)
     } else {
         ZoomableImage(
             uri = media.uri,
@@ -718,30 +724,219 @@ private fun ZoomableImage(
 }
 
 @Composable
-private fun VideoPlayer(uri: Uri, onTap: () -> Unit, bottomInset: Dp) {
+private fun VideoPlayer(uri: Uri, onTap: () -> Unit, bottomInset: Dp, showControls: Boolean) {
     val context = LocalContext.current
-    val exoPlayer = remember {
+    val exoPlayer = remember(uri) {
         ExoPlayer.Builder(context).build().apply {
             setMediaItem(Media3Item.fromUri(uri))
             prepare()
             playWhenReady = true
         }
     }
-    DisposableEffect(Unit) { onDispose { exoPlayer.release() } }
+    var durationMs by remember(uri) { mutableLongStateOf(0L) }
+    var currentPositionMs by remember(uri) { mutableLongStateOf(0L) }
+    var isPlaying by remember(uri) { mutableStateOf(exoPlayer.playWhenReady) }
+    var isSeeking by remember(uri) { mutableStateOf(false) }
+    var seekPositionMs by remember(uri) { mutableLongStateOf(0L) }
+    val activePositionMs = if (isSeeking) seekPositionMs else currentPositionMs
+    val previewRequestMs = if (isSeeking) (seekPositionMs / 500L) * 500L else -1L
+
+    DisposableEffect(exoPlayer, isSeeking) {
+        val listener = object : androidx.media3.common.Player.Listener {
+            override fun onIsPlayingChanged(playing: Boolean) {
+                isPlaying = playing
+            }
+
+            override fun onEvents(
+                player: androidx.media3.common.Player,
+                events: androidx.media3.common.Player.Events,
+            ) {
+                durationMs = player.duration.coerceAtLeast(0L)
+                if (!isSeeking) {
+                    currentPositionMs = player.currentPosition.coerceAtLeast(0L)
+                }
+            }
+        }
+        exoPlayer.addListener(listener)
+        durationMs = exoPlayer.duration.coerceAtLeast(0L)
+        currentPositionMs = exoPlayer.currentPosition.coerceAtLeast(0L)
+        onDispose {
+            exoPlayer.removeListener(listener)
+            exoPlayer.release()
+        }
+    }
+
+    LaunchedEffect(exoPlayer, isSeeking) {
+        while (true) {
+            if (!isSeeking) {
+                durationMs = exoPlayer.duration.coerceAtLeast(0L)
+                currentPositionMs = exoPlayer.currentPosition.coerceAtLeast(0L)
+                isPlaying = exoPlayer.isPlaying
+            }
+            delay(200)
+        }
+    }
+
+    val previewBitmap by produceState<Bitmap?>(initialValue = null, uri, previewRequestMs) {
+        if (previewRequestMs < 0L) {
+            value = null
+            return@produceState
+        }
+        value = loadVideoPreviewFrame(context, uri, previewRequestMs)
+    }
 
     Box(modifier = Modifier.fillMaxSize().pointerInput(Unit) { detectTapGestures(onTap = { onTap() }) }) {
         AndroidView(
             factory = { ctx ->
                 PlayerView(ctx).apply {
                     player = exoPlayer
-                    useController = true
+                    useController = false
                 }
             },
             modifier = Modifier
                 .fillMaxSize()
                 .padding(bottom = bottomInset),
         )
+
+        AnimatedVisibility(
+            visible = showControls,
+            enter = fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier.align(Alignment.Center),
+        ) {
+            FilledIconButton(
+                onClick = {
+                    if (exoPlayer.isPlaying) exoPlayer.pause() else exoPlayer.play()
+                },
+                colors = IconButtonDefaults.filledIconButtonColors(
+                    containerColor = Color.Black.copy(alpha = 0.54f),
+                    contentColor = Color.White,
+                ),
+                modifier = Modifier.size(68.dp),
+            ) {
+                Icon(
+                    imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                    contentDescription = if (isPlaying) "Pause" else "Play",
+                    modifier = Modifier.size(34.dp),
+                )
+            }
+        }
+
+        AnimatedVisibility(
+            visible = showControls,
+            enter = fadeIn() + slideInVertically(initialOffsetY = { it / 2 }),
+            exit = fadeOut() + slideOutVertically(targetOffsetY = { it / 2 }),
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(start = 16.dp, end = 16.dp, bottom = bottomInset + 16.dp),
+        ) {
+            Surface(
+                color = Color.Black.copy(alpha = 0.62f),
+                shape = RoundedCornerShape(22.dp),
+                tonalElevation = 0.dp,
+            ) {
+                Column(
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    if (isSeeking) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.Center,
+                        ) {
+                            Surface(
+                                color = Color.Black.copy(alpha = 0.72f),
+                                shape = RoundedCornerShape(18.dp),
+                            ) {
+                                Column(
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    modifier = Modifier.padding(8.dp),
+                                ) {
+                                    if (previewBitmap != null) {
+                                        Image(
+                                            bitmap = previewBitmap!!.asImageBitmap(),
+                                            contentDescription = null,
+                                            contentScale = ContentScale.Crop,
+                                            modifier = Modifier
+                                                .size(width = 128.dp, height = 72.dp)
+                                                .clip(RoundedCornerShape(12.dp)),
+                                        )
+                                        Spacer(Modifier.height(6.dp))
+                                    }
+                                    Text(
+                                        text = DateUtils.formatDuration(activePositionMs),
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = Color.White,
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    Slider(
+                        value = activePositionMs.toFloat(),
+                        onValueChange = { newValue ->
+                            isSeeking = true
+                            seekPositionMs = newValue.toLong().coerceIn(0L, durationMs.coerceAtLeast(0L))
+                        },
+                        onValueChangeFinished = {
+                            exoPlayer.seekTo(seekPositionMs)
+                            currentPositionMs = seekPositionMs
+                            isSeeking = false
+                        },
+                        valueRange = 0f..durationMs.coerceAtLeast(1L).toFloat(),
+                        colors = SliderDefaults.colors(
+                            thumbColor = Color.White,
+                            activeTrackColor = MaterialTheme.colorScheme.primary,
+                            inactiveTrackColor = Color.White.copy(alpha = 0.24f),
+                        ),
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = DateUtils.formatDuration(activePositionMs),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = Color.White.copy(alpha = 0.92f),
+                        )
+                        Text(
+                            text = DateUtils.formatDuration(durationMs),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = Color.White.copy(alpha = 0.7f),
+                        )
+                    }
+                }
+            }
+        }
     }
+}
+
+private suspend fun loadVideoPreviewFrame(
+    context: android.content.Context,
+    uri: Uri,
+    positionMs: Long,
+): Bitmap? = withContext(Dispatchers.IO) {
+    runCatching {
+        val retriever = MediaMetadataRetriever()
+        try {
+            retriever.setDataSource(context, uri)
+            val bitmap = retriever.getFrameAtTime(
+                positionMs * 1000L,
+                MediaMetadataRetriever.OPTION_CLOSEST_SYNC,
+            ) ?: return@runCatching null
+
+            Bitmap.createScaledBitmap(bitmap, 256, 144, true).also { scaled ->
+                if (scaled != bitmap) {
+                    bitmap.recycle()
+                }
+            }
+        } finally {
+            retriever.release()
+        }
+    }.getOrNull()
 }
 
 private enum class AlbumMenuAction {
