@@ -26,7 +26,9 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
+import coil.request.CachePolicy
 import coil.request.ImageRequest
+import coil.size.Size
 import com.gallery.android.domain.model.MediaItem
 import com.gallery.android.domain.model.MediaType
 import com.gallery.android.utils.DateUtils
@@ -35,22 +37,29 @@ import com.gallery.android.utils.DateUtils
 @Composable
 fun GalleryScreen(
     bucketId: Long? = null,
+    customAlbumId: Long? = null,
     onMediaClick: (Long) -> Unit,
     onFavoritesClick: () -> Unit,
     onTrashClick: () -> Unit,
     viewModel: GalleryViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
-    val context = LocalContext.current
+    var showFilterDialog by remember { mutableStateOf(false) }
 
-    val mediaList by if (bucketId != null) {
+    val mediaList by if (customAlbumId != null) {
+        viewModel.getMediaByCustomAlbum(customAlbumId).collectAsStateWithLifecycle(emptyList())
+    } else if (bucketId != null) {
         viewModel.getMediaByBucket(bucketId).collectAsStateWithLifecycle(emptyList())
     } else {
         viewModel.allMedia.collectAsStateWithLifecycle()
     }
 
-    val grouped = remember(mediaList) {
-        mediaList.groupBy { DateUtils.formatGroupDate(it.dateAdded) }
+    val filteredMedia = remember(mediaList, uiState.activeFilter) {
+        mediaList.filter { uiState.activeFilter.matches(it) }
+    }
+
+    val grouped = remember(filteredMedia) {
+        filteredMedia.groupBy { DateUtils.formatGroupDate(it.dateAdded) }
     }
 
     val isSelecting = uiState.selectedIds.isNotEmpty()
@@ -65,8 +74,20 @@ fun GalleryScreen(
                 )
             } else {
                 CenterAlignedTopAppBar(
-                    title = { Text(if (bucketId != null) "Album" else "Photos", fontWeight = FontWeight.Bold) },
+                    title = {
+                        Text(
+                            if (bucketId != null || customAlbumId != null) "Album" else "Photos",
+                            fontWeight = FontWeight.Bold,
+                        )
+                    },
                     actions = {
+                        IconButton(onClick = { showFilterDialog = true }) {
+                            Icon(Icons.Default.FilterList, contentDescription = "Sort and filter")
+                        }
+                        GridSizeMenu(
+                            currentColumns = uiState.gridColumns,
+                            onColumnChange = viewModel::setGridColumns,
+                        )
                         if (bucketId == null) {
                             IconButton(onClick = onFavoritesClick) {
                                 Icon(Icons.Default.Favorite, contentDescription = "Favorites")
@@ -74,18 +95,18 @@ fun GalleryScreen(
                             IconButton(onClick = onTrashClick) {
                                 Icon(Icons.Default.Delete, contentDescription = "Trash")
                             }
-                            GridSizeMenu(
-                                currentColumns = uiState.gridColumns,
-                                onColumnChange = viewModel::setGridColumns,
-                            )
                         }
                     },
                 )
             }
         }
     ) { padding ->
-        if (mediaList.isEmpty()) {
-            EmptyState(modifier = Modifier.padding(padding))
+        if (filteredMedia.isEmpty()) {
+            EmptyState(
+                modifier = Modifier.padding(padding),
+                title = if (uiState.activeFilter == GalleryFilter.ALL) "No photos or videos" else "No matching items",
+                subtitle = if (uiState.activeFilter == GalleryFilter.ALL) null else uiState.activeFilter.label,
+            )
         } else {
             LazyVerticalGrid(
                 columns = GridCells.Fixed(uiState.gridColumns),
@@ -97,7 +118,7 @@ fun GalleryScreen(
                 verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
                 grouped.forEach { (dateLabel, items) ->
-                    stickyHeader(key = dateLabel) {
+                    item(key = dateLabel, span = { GridItemSpan(maxLineSpan) }) {
                         DateHeader(dateLabel)
                     }
                     items(items = items, key = { it.id }) { media ->
@@ -114,6 +135,17 @@ fun GalleryScreen(
                 }
             }
         }
+    }
+
+    if (showFilterDialog) {
+        GalleryFilterDialog(
+            selectedFilter = uiState.activeFilter,
+            onSelect = {
+                viewModel.setFilter(it)
+                showFilterDialog = false
+            },
+            onDismiss = { showFilterDialog = false },
+        )
     }
 }
 
@@ -152,6 +184,8 @@ private fun MediaThumbnail(
             model = ImageRequest.Builder(LocalContext.current)
                 .data(media.uri)
                 .crossfade(true)
+                .size(Size(256, 256))
+                .memoryCachePolicy(CachePolicy.ENABLED)
                 .build(),
             contentDescription = media.name,
             contentScale = ContentScale.Crop,
@@ -252,13 +286,62 @@ private fun GridSizeMenu(currentColumns: Int, onColumnChange: (Int) -> Unit) {
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun EmptyState(modifier: Modifier = Modifier) {
+private fun GalleryFilterDialog(
+    selectedFilter: GalleryFilter,
+    onSelect: (GalleryFilter) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Sort and filter") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                GalleryFilter.entries.forEach { filter ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .combinedClickable(onClick = { onSelect(filter) }, onLongClick = {}),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        RadioButton(
+                            selected = filter == selectedFilter,
+                            onClick = { onSelect(filter) },
+                        )
+                        Text(
+                            text = filter.label,
+                            style = MaterialTheme.typography.bodyLarge,
+                            modifier = Modifier.padding(start = 8.dp),
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Close")
+            }
+        },
+    )
+}
+
+@Composable
+private fun EmptyState(
+    modifier: Modifier = Modifier,
+    title: String,
+    subtitle: String? = null,
+) {
     Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Icon(Icons.Default.Photo, contentDescription = null, modifier = Modifier.size(64.dp), tint = MaterialTheme.colorScheme.outline)
             Spacer(Modifier.height(16.dp))
-            Text("No photos or videos", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.outline)
+            Text(title, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.outline)
+            if (subtitle != null) {
+                Spacer(Modifier.height(8.dp))
+                Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+            }
         }
     }
 }

@@ -58,9 +58,16 @@ fun GalleryNavHost(navController: NavHostController) {
         }
         composable(Screen.Albums.route) {
             AlbumsScreen(
-                onAlbumClick = { bucketId ->
-                    navController.navigate("album/$bucketId")
-                }
+                onAlbumClick = { album ->
+                    if (album.isUserCreated) {
+                        navController.navigate("custom-album/${album.id}")
+                    } else {
+                        navController.navigate("album/${album.bucketId}")
+                    }
+                },
+                onFavoritesClick = { navController.navigate("favorites") },
+                onTrashClick = { navController.navigate("trash") },
+                onSafeClick = { navController.navigate(Screen.Safe.route) },
             )
         }
         composable(Screen.Search.route) {
@@ -104,6 +111,18 @@ fun GalleryNavHost(navController: NavHostController) {
             val bucketId = backStackEntry.arguments?.getLong("bucketId") ?: 0L
             GalleryScreen(
                 bucketId = bucketId,
+                onMediaClick = { mediaId -> navController.navigate("viewer/$mediaId") },
+                onFavoritesClick = { navController.navigate("favorites") },
+                onTrashClick = { navController.navigate("trash") },
+            )
+        }
+        composable(
+            route = "custom-album/{albumId}",
+            arguments = listOf(navArgument("albumId") { type = NavType.LongType }),
+        ) { backStackEntry ->
+            val albumId = backStackEntry.arguments?.getLong("albumId") ?: 0L
+            GalleryScreen(
+                customAlbumId = albumId,
                 onMediaClick = { mediaId -> navController.navigate("viewer/$mediaId") },
                 onFavoritesClick = { navController.navigate("favorites") },
                 onTrashClick = { navController.navigate("trash") },

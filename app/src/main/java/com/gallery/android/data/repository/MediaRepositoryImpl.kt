@@ -1,6 +1,9 @@
 package com.gallery.android.data.repository
 
+import android.content.ContentValues
 import android.content.Context
+import android.os.Build
+import android.provider.MediaStore
 import androidx.paging.Pager
 import androidx.paging.PagingConfig
 import androidx.paging.PagingData
@@ -74,6 +77,48 @@ class MediaRepositoryImpl @Inject constructor(
 
     override suspend fun restoreFromSafe(mediaId: Long) {
         mediaDao.restoreFromSafe(mediaId)
+    }
+
+    override suspend fun renameMedia(mediaId: Long, newName: String) {
+        val media = mediaDao.getById(mediaId) ?: error("Media not found")
+        val trimmedName = newName.trim()
+        require(trimmedName.isNotEmpty()) { "Name cannot be empty" }
+
+        val extension = media.name.substringAfterLast('.', missingDelimiterValue = "")
+        val normalizedName = if ('.' in trimmedName || extension.isBlank()) {
+            trimmedName
+        } else {
+            "$trimmedName.$extension"
+        }
+
+        val uri = Uri.parse(media.uri)
+        val values = ContentValues().apply {
+            put(MediaStore.MediaColumns.DISPLAY_NAME, normalizedName)
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            values.put(MediaStore.MediaColumns.IS_PENDING, 1)
+        }
+
+        val updatedRows = context.contentResolver.update(uri, values, null, null)
+        if (updatedRows <= 0) {
+            error("Unable to rename media")
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            context.contentResolver.update(
+                uri,
+                ContentValues().apply { put(MediaStore.MediaColumns.IS_PENDING, 0) },
+                null,
+                null,
+            )
+        }
+
+        val newPath = media.path.substringBeforeLast('/', missingDelimiterValue = media.path)
+            .let { parent ->
+                if (parent == media.path) normalizedName else "$parent/$normalizedName"
+            }
+        mediaDao.renameMedia(mediaId, normalizedName, newPath, System.currentTimeMillis() / 1000)
     }
 
     override suspend fun syncMediaStore() {

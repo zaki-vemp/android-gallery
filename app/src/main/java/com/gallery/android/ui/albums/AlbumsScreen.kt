@@ -1,5 +1,6 @@
 package com.gallery.android.ui.albums
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.*
@@ -11,6 +12,9 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -24,7 +28,10 @@ import com.gallery.android.domain.model.Album
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AlbumsScreen(
-    onAlbumClick: (Long) -> Unit,
+    onAlbumClick: (Album) -> Unit,
+    onFavoritesClick: () -> Unit = {},
+    onTrashClick: () -> Unit = {},
+    onSafeClick: () -> Unit = {},
     viewModel: AlbumsViewModel = hiltViewModel(),
 ) {
     val albums by viewModel.albums.collectAsStateWithLifecycle()
@@ -47,12 +54,69 @@ fun AlbumsScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding),
-            contentPadding = PaddingValues(12.dp),
+            contentPadding = PaddingValues(start = 12.dp, top = 12.dp, end = 12.dp, bottom = 24.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            items(albums, key = { it.id }) { album ->
-                AlbumCard(album = album, onClick = { onAlbumClick(album.bucketId) })
+            items(
+                items = albums,
+                key = { album ->
+                    if (album.isUserCreated) "user-${album.id}" else "bucket-${album.bucketId}"
+                },
+            ) { album ->
+                AlbumCard(
+                    album = album,
+                    onClick = { onAlbumClick(album) },
+                )
+            }
+
+            // Section divider
+            item(span = { GridItemSpan(maxLineSpan) }) {
+                HorizontalDivider(
+                    modifier = Modifier.padding(vertical = 8.dp),
+                    color = MaterialTheme.colorScheme.outlineVariant,
+                )
+            }
+
+            // Utility section cards
+            item(key = "favorites") {
+                UtilityAlbumCard(
+                    title = "Favorites",
+                    subtitle = "Starred media",
+                    icon = Icons.Default.Favorite,
+                    iconTint = MaterialTheme.colorScheme.error,
+                    gradientColors = listOf(
+                        MaterialTheme.colorScheme.errorContainer,
+                        MaterialTheme.colorScheme.error.copy(alpha = 0.6f),
+                    ),
+                    onClick = onFavoritesClick,
+                )
+            }
+            item(key = "trash") {
+                UtilityAlbumCard(
+                    title = "Recently Deleted",
+                    subtitle = "Auto-deleted after 30 days",
+                    icon = Icons.Default.Delete,
+                    iconTint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    gradientColors = listOf(
+                        MaterialTheme.colorScheme.surfaceVariant,
+                        MaterialTheme.colorScheme.outline.copy(alpha = 0.4f),
+                    ),
+                    onClick = onTrashClick,
+                )
+            }
+            item(key = "safe") {
+                UtilityAlbumCard(
+                    title = "Private Safe",
+                    subtitle = "Encrypted & hidden",
+                    icon = Icons.Default.Lock,
+                    iconTint = MaterialTheme.colorScheme.primary,
+                    gradientColors = listOf(
+                        MaterialTheme.colorScheme.primaryContainer,
+                        MaterialTheme.colorScheme.primary.copy(alpha = 0.6f),
+                    ),
+                    onClick = onSafeClick,
+                )
             }
         }
     }
@@ -65,6 +129,48 @@ fun AlbumsScreen(
             },
             onDismiss = { showCreateDialog = false },
         )
+    }
+}
+
+@Composable
+private fun UtilityAlbumCard(
+    title: String,
+    subtitle: String,
+    icon: ImageVector,
+    iconTint: Color,
+    gradientColors: List<Color>,
+    onClick: () -> Unit,
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
+        shape = RoundedCornerShape(16.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+    ) {
+        Column {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .aspectRatio(1f)
+                    .background(Brush.linearGradient(gradientColors)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    modifier = Modifier.size(56.dp),
+                    tint = iconTint,
+                )
+            }
+            Column(modifier = Modifier.padding(12.dp)) {
+                Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, maxLines = 1)
+                Text(
+                    subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.outline,
+                    maxLines = 1,
+                )
+            }
+        }
     }
 }
 
@@ -98,7 +204,11 @@ private fun AlbumCard(album: Album, onClick: () -> Unit) {
             }
             Column(modifier = Modifier.padding(12.dp)) {
                 Text(album.name, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, maxLines = 1)
-                Text("${album.mediaCount} items", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+                Text(
+                    if (album.isUserCreated) "Custom album" else "${album.mediaCount} items",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.outline,
+                )
             }
         }
     }

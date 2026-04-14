@@ -1,9 +1,9 @@
 package com.gallery.android.ui.safe
 
 import android.view.WindowManager
-import androidx.activity.ComponentActivity
 import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricPrompt
+import androidx.fragment.app.FragmentActivity
 import androidx.compose.animation.*
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -40,7 +40,7 @@ fun PrivateSafeScreen(
 
     // FLAG_SECURE to prevent screenshots
     DisposableEffect(Unit) {
-        val activity = context as? ComponentActivity
+        val activity = context as? FragmentActivity
         activity?.window?.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
         onDispose {
             activity?.window?.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
@@ -61,7 +61,7 @@ fun PrivateSafeScreen(
                 errorMessage = uiState.errorMessage,
                 onPinEntered = viewModel::unlockWithPin,
                 onBiometricClick = {
-                    val activity = context as? ComponentActivity ?: return@LockScreen
+                    val activity = context as? FragmentActivity ?: return@LockScreen
                     val executor = ContextCompat.getMainExecutor(context)
                     val prompt = BiometricPrompt(activity, executor, object : BiometricPrompt.AuthenticationCallback() {
                         override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {

@@ -61,6 +61,9 @@ interface MediaDao {
     @Query("UPDATE media SET isInSafe = 0, encryptedPath = '' WHERE id = :id")
     suspend fun restoreFromSafe(id: Long)
 
+    @Query("UPDATE media SET name = :name, path = :path, dateModified = :dateModified WHERE id = :id")
+    suspend fun renameMedia(id: Long, name: String, path: String, dateModified: Long)
+
     @Query("SELECT id FROM media")
     suspend fun getAllIds(): List<Long>
 

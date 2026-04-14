@@ -19,5 +19,6 @@ interface MediaRepository {
     suspend fun cleanupExpiredTrash()
     suspend fun moveToSafe(mediaId: Long, encryptedPath: String)
     suspend fun restoreFromSafe(mediaId: Long)
+    suspend fun renameMedia(mediaId: Long, newName: String)
     suspend fun syncMediaStore()
 }
