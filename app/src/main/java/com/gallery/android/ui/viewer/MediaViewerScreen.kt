@@ -81,6 +81,7 @@ import kotlin.math.roundToInt
 fun MediaViewerScreen(
     initialMediaId: Long,
     onBack: () -> Unit,
+    onEditImage: ((Uri) -> Unit)? = null,
     viewModel: MediaViewerViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -567,6 +568,11 @@ fun MediaViewerScreen(
                     }) {
                         Icon(Icons.Default.Delete, contentDescription = "Delete", tint = Color.White)
                     }
+                    if (onEditImage != null && media?.mediaType == com.gallery.android.domain.model.MediaType.IMAGE) {
+                        IconButton(onClick = { onEditImage(media.uri) }) {
+                            Icon(Icons.Default.Edit, contentDescription = "Edit", tint = Color.White)
+                        }
+                    }
                     IconButton(onClick = {
                         media?.let { m ->
                             val wallpaperIntent = Intent(Intent.ACTION_ATTACH_DATA).apply {
@@ -723,6 +729,8 @@ private fun ZoomableImage(
     )
 }
 
+private const val SEEK_INCREMENT_MS = 10_000L
+
 @Composable
 private fun VideoPlayer(uri: Uri, onTap: () -> Unit, bottomInset: Dp, showControls: Boolean) {
     val context = LocalContext.current
@@ -741,20 +749,16 @@ private fun VideoPlayer(uri: Uri, onTap: () -> Unit, bottomInset: Dp, showContro
     val activePositionMs = if (isSeeking) seekPositionMs else currentPositionMs
     val previewRequestMs = if (isSeeking) (seekPositionMs / 500L) * 500L else -1L
 
+    // Double-tap seek indicators
+    var seekIndicator by remember { mutableStateOf<SeekDirection?>(null) }
+    val coroutineScope = rememberCoroutineScope()
+
     DisposableEffect(exoPlayer, isSeeking) {
         val listener = object : androidx.media3.common.Player.Listener {
-            override fun onIsPlayingChanged(playing: Boolean) {
-                isPlaying = playing
-            }
-
-            override fun onEvents(
-                player: androidx.media3.common.Player,
-                events: androidx.media3.common.Player.Events,
-            ) {
+            override fun onIsPlayingChanged(playing: Boolean) { isPlaying = playing }
+            override fun onEvents(player: androidx.media3.common.Player, events: androidx.media3.common.Player.Events) {
                 durationMs = player.duration.coerceAtLeast(0L)
-                if (!isSeeking) {
-                    currentPositionMs = player.currentPosition.coerceAtLeast(0L)
-                }
+                if (!isSeeking) currentPositionMs = player.currentPosition.coerceAtLeast(0L)
             }
         }
         exoPlayer.addListener(listener)
@@ -778,14 +782,53 @@ private fun VideoPlayer(uri: Uri, onTap: () -> Unit, bottomInset: Dp, showContro
     }
 
     val previewBitmap by produceState<Bitmap?>(initialValue = null, uri, previewRequestMs) {
-        if (previewRequestMs < 0L) {
-            value = null
-            return@produceState
-        }
+        if (previewRequestMs < 0L) { value = null; return@produceState }
         value = loadVideoPreviewFrame(context, uri, previewRequestMs)
     }
 
-    Box(modifier = Modifier.fillMaxSize().pointerInput(Unit) { detectTapGestures(onTap = { onTap() }) }) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .pointerInput(Unit) {
+                detectTapGestures(
+                    onTap = { offset ->
+                        val width = size.width
+                        when {
+                            offset.x < width * 0.33f -> {
+                                // Left tap area — handled by double-tap; single tap shows controls
+                                onTap()
+                            }
+                            offset.x > width * 0.67f -> {
+                                onTap()
+                            }
+                            else -> onTap()
+                        }
+                    },
+                    onDoubleTap = { offset ->
+                        val width = size.width
+                        if (offset.x < width / 2) {
+                            // Double-tap left: seek backward
+                            val newPos = (exoPlayer.currentPosition - SEEK_INCREMENT_MS).coerceAtLeast(0L)
+                            exoPlayer.seekTo(newPos)
+                            currentPositionMs = newPos
+                            seekIndicator = SeekDirection.BACKWARD
+                        } else {
+                            // Double-tap right: seek forward
+                            val newPos = (exoPlayer.currentPosition + SEEK_INCREMENT_MS).coerceAtMost(
+                                exoPlayer.duration.coerceAtLeast(0L)
+                            )
+                            exoPlayer.seekTo(newPos)
+                            currentPositionMs = newPos
+                            seekIndicator = SeekDirection.FORWARD
+                        }
+                        coroutineScope.launch {
+                            delay(800)
+                            seekIndicator = null
+                        }
+                    },
+                )
+            }
+    ) {
         AndroidView(
             factory = { ctx ->
                 PlayerView(ctx).apply {
@@ -798,6 +841,25 @@ private fun VideoPlayer(uri: Uri, onTap: () -> Unit, bottomInset: Dp, showContro
                 .padding(bottom = bottomInset),
         )
 
+        // Double-tap seek ripple indicators
+        AnimatedVisibility(
+            visible = seekIndicator == SeekDirection.BACKWARD,
+            enter = fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier.align(Alignment.CenterStart).padding(start = 24.dp),
+        ) {
+            SeekIndicator(direction = SeekDirection.BACKWARD)
+        }
+
+        AnimatedVisibility(
+            visible = seekIndicator == SeekDirection.FORWARD,
+            enter = fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier.align(Alignment.CenterEnd).padding(end = 24.dp),
+        ) {
+            SeekIndicator(direction = SeekDirection.FORWARD)
+        }
+
         AnimatedVisibility(
             visible = showControls,
             enter = fadeIn(),
@@ -805,9 +867,7 @@ private fun VideoPlayer(uri: Uri, onTap: () -> Unit, bottomInset: Dp, showContro
             modifier = Modifier.align(Alignment.Center),
         ) {
             FilledIconButton(
-                onClick = {
-                    if (exoPlayer.isPlaying) exoPlayer.pause() else exoPlayer.play()
-                },
+                onClick = { if (exoPlayer.isPlaying) exoPlayer.pause() else exoPlayer.play() },
                 colors = IconButtonDefaults.filledIconButtonColors(
                     containerColor = Color.Black.copy(alpha = 0.54f),
                     contentColor = Color.White,
@@ -840,14 +900,8 @@ private fun VideoPlayer(uri: Uri, onTap: () -> Unit, bottomInset: Dp, showContro
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     if (isSeeking) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.Center,
-                        ) {
-                            Surface(
-                                color = Color.Black.copy(alpha = 0.72f),
-                                shape = RoundedCornerShape(18.dp),
-                            ) {
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
+                            Surface(color = Color.Black.copy(alpha = 0.72f), shape = RoundedCornerShape(18.dp)) {
                                 Column(
                                     horizontalAlignment = Alignment.CenterHorizontally,
                                     modifier = Modifier.padding(8.dp),
@@ -873,24 +927,53 @@ private fun VideoPlayer(uri: Uri, onTap: () -> Unit, bottomInset: Dp, showContro
                         }
                     }
 
-                    Slider(
-                        value = activePositionMs.toFloat(),
-                        onValueChange = { newValue ->
-                            isSeeking = true
-                            seekPositionMs = newValue.toLong().coerceIn(0L, durationMs.coerceAtLeast(0L))
-                        },
-                        onValueChangeFinished = {
-                            exoPlayer.seekTo(seekPositionMs)
-                            currentPositionMs = seekPositionMs
-                            isSeeking = false
-                        },
-                        valueRange = 0f..durationMs.coerceAtLeast(1L).toFloat(),
-                        colors = SliderDefaults.colors(
-                            thumbColor = Color.White,
-                            activeTrackColor = MaterialTheme.colorScheme.primary,
-                            inactiveTrackColor = Color.White.copy(alpha = 0.24f),
-                        ),
-                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        IconButton(
+                            onClick = {
+                                val newPos = (exoPlayer.currentPosition - SEEK_INCREMENT_MS).coerceAtLeast(0L)
+                                exoPlayer.seekTo(newPos)
+                                currentPositionMs = newPos
+                            },
+                            modifier = Modifier.size(36.dp),
+                        ) {
+                            Icon(Icons.Default.Replay10, contentDescription = "Rewind 10s", tint = Color.White, modifier = Modifier.size(22.dp))
+                        }
+
+                        Slider(
+                            value = activePositionMs.toFloat(),
+                            onValueChange = { newValue ->
+                                isSeeking = true
+                                seekPositionMs = newValue.toLong().coerceIn(0L, durationMs.coerceAtLeast(0L))
+                            },
+                            onValueChangeFinished = {
+                                exoPlayer.seekTo(seekPositionMs)
+                                currentPositionMs = seekPositionMs
+                                isSeeking = false
+                            },
+                            valueRange = 0f..durationMs.coerceAtLeast(1L).toFloat(),
+                            colors = SliderDefaults.colors(
+                                thumbColor = Color.White,
+                                activeTrackColor = MaterialTheme.colorScheme.primary,
+                                inactiveTrackColor = Color.White.copy(alpha = 0.24f),
+                            ),
+                            modifier = Modifier.weight(1f),
+                        )
+
+                        IconButton(
+                            onClick = {
+                                val newPos = (exoPlayer.currentPosition + SEEK_INCREMENT_MS)
+                                    .coerceAtMost(durationMs.coerceAtLeast(0L))
+                                exoPlayer.seekTo(newPos)
+                                currentPositionMs = newPos
+                            },
+                            modifier = Modifier.size(36.dp),
+                        ) {
+                            Icon(Icons.Default.Forward10, contentDescription = "Forward 10s", tint = Color.White, modifier = Modifier.size(22.dp))
+                        }
+                    }
 
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -909,6 +992,30 @@ private fun VideoPlayer(uri: Uri, onTap: () -> Unit, bottomInset: Dp, showContro
                         )
                     }
                 }
+            }
+        }
+    }
+}
+
+private enum class SeekDirection { FORWARD, BACKWARD }
+
+@Composable
+private fun SeekIndicator(direction: SeekDirection) {
+    Surface(
+        color = Color.White.copy(alpha = 0.18f),
+        shape = RoundedCornerShape(50),
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            if (direction == SeekDirection.BACKWARD) {
+                Icon(Icons.Default.Replay10, contentDescription = null, tint = Color.White, modifier = Modifier.size(28.dp))
+                Text("10s", color = Color.White, style = MaterialTheme.typography.labelSmall)
+            } else {
+                Text("10s", color = Color.White, style = MaterialTheme.typography.labelSmall)
+                Icon(Icons.Default.Forward10, contentDescription = null, tint = Color.White, modifier = Modifier.size(28.dp))
             }
         }
     }

@@ -17,7 +17,9 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.navArgument
+import android.net.Uri
 import com.gallery.android.ui.albums.AlbumsScreen
+import com.gallery.android.ui.editor.ImageEditorScreen
 import com.gallery.android.ui.favorites.FavoritesScreen
 import com.gallery.android.ui.gallery.GalleryScreen
 import com.gallery.android.ui.safe.PrivateSafeScreen
@@ -92,6 +94,21 @@ fun GalleryNavHost(navController: NavHostController) {
             MediaViewerScreen(
                 initialMediaId = mediaId,
                 onBack = { navController.popBackStack() },
+                onEditImage = { uri ->
+                    navController.navigate("editor/${Uri.encode(uri.toString())}")
+                },
+            )
+        }
+        composable(
+            route = "editor/{encodedUri}",
+            arguments = listOf(navArgument("encodedUri") { type = NavType.StringType }),
+        ) { backStackEntry ->
+            val encoded = backStackEntry.arguments?.getString("encodedUri") ?: ""
+            val uri = Uri.parse(Uri.decode(encoded))
+            ImageEditorScreen(
+                mediaUri = uri,
+                onBack = { navController.popBackStack() },
+                onSaved = { navController.popBackStack() },
             )
         }
         composable("favorites") {

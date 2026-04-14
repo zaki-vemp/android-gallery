@@ -2,6 +2,7 @@ package com.gallery.android.data.repository
 
 import android.content.ContentValues
 import android.content.Context
+import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
 import androidx.paging.Pager
@@ -9,7 +10,9 @@ import androidx.paging.PagingConfig
 import androidx.paging.PagingData
 import androidx.paging.map
 import com.gallery.android.data.local.database.dao.MediaDao
+import com.gallery.android.data.local.database.dao.OcrMetadataDao
 import com.gallery.android.data.local.entity.MediaEntity
+import com.gallery.android.domain.model.MediaCategory
 import com.gallery.android.domain.model.MediaItem
 import com.gallery.android.domain.model.MediaType
 import com.gallery.android.domain.repository.MediaRepository
@@ -18,7 +21,6 @@ import com.gallery.android.utils.MediaUtils
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
-import android.net.Uri
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -26,6 +28,7 @@ import javax.inject.Singleton
 class MediaRepositoryImpl @Inject constructor(
     @ApplicationContext private val context: Context,
     private val mediaDao: MediaDao,
+    private val ocrMetadataDao: OcrMetadataDao,
 ) : MediaRepository {
 
     override fun getMediaPaged(): Flow<PagingData<MediaItem>> = Pager(
@@ -50,6 +53,20 @@ class MediaRepositoryImpl @Inject constructor(
 
     override suspend fun searchMedia(query: String): List<MediaItem> =
         mediaDao.searchByName(query).map { it.toDomain() }
+
+    override suspend fun searchMediaWithOcr(query: String): List<MediaItem> {
+        val byName = mediaDao.searchByName(query).map { it.toDomain() }
+        val byOcr = ocrMetadataDao.searchByOcrText(query).map { it.toDomain() }
+        return (byName + byOcr).distinctBy { it.id }
+    }
+
+    override suspend fun getMediaByCategory(category: MediaCategory): List<MediaItem> {
+        return when (category) {
+            MediaCategory.FAVORITES -> mediaDao.getFavoritesList().map { it.toDomain() }
+            MediaCategory.VIDEOS -> mediaDao.getVideosList().map { it.toDomain() }
+            else -> ocrMetadataDao.getByCategory(category.name).map { it.toDomain() }
+        }
+    }
 
     override suspend fun toggleFavorite(mediaId: Long, isFavorite: Boolean) {
         mediaDao.updateFavorite(mediaId, isFavorite)

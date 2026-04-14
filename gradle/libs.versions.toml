@@ -2,6 +2,8 @@
 agp = "8.7.3"
 kotlin = "2.0.21"
 ksp = "2.0.21-1.0.28"
+mlkitTextRecognition = "16.0.1"
+coroutinesPlayServices = "1.9.0"
 hilt = "2.52"
 hiltNavigationCompose = "1.2.0"
 composeBom = "2024.12.01"
@@ -61,6 +63,8 @@ accompanist-permissions = { group = "com.google.accompanist", name = "accompanis
 security-crypto = { group = "androidx.security", name = "security-crypto", version.ref = "securityCrypto" }
 coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "coroutines" }
 telephoto-zoomable-image-coil = { group = "me.saket.telephoto", name = "zoomable-image-coil", version.ref = "telephoto" }
+mlkit-text-recognition = { group = "com.google.mlkit", name = "text-recognition", version.ref = "mlkitTextRecognition" }
+coroutines-play-services = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-play-services", version.ref = "coroutinesPlayServices" }
 junit = { group = "junit", name = "junit", version = "4.13.2" }
 androidx-junit = { group = "androidx.test.ext", name = "junit", version = "1.2.1" }
 androidx-espresso-core = { group = "androidx.test.espresso", name = "espresso-core", version = "3.6.1" }

@@ -69,4 +69,10 @@ interface MediaDao {
 
     @Query("DELETE FROM media WHERE id NOT IN (:ids)")
     suspend fun deleteNotIn(ids: List<Long>)
+
+    @Query("SELECT * FROM media WHERE isFavorite = 1 AND isInTrash = 0 AND isInSafe = 0 ORDER BY dateAdded DESC")
+    suspend fun getFavoritesList(): List<MediaEntity>
+
+    @Query("SELECT * FROM media WHERE mimeType LIKE 'video/%' AND isInTrash = 0 AND isInSafe = 0 ORDER BY dateAdded DESC")
+    suspend fun getVideosList(): List<MediaEntity>
 }
