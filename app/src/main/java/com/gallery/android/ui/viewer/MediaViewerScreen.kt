@@ -8,35 +8,46 @@ import android.graphics.pdf.PdfDocument
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
-import android.provider.ContactsContract
 import android.provider.MediaStore
 import androidx.compose.animation.*
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.*
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.blur
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.input.pointer.awaitFirstDown
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.input.pointer.positionChange
+import androidx.compose.ui.input.pointer.util.VelocityTracker
+import androidx.compose.ui.input.pointer.util.addPointerInputChange
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.round
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -51,8 +62,13 @@ import com.gallery.android.domain.model.MediaItem
 import com.gallery.android.domain.model.MediaType
 import com.gallery.android.utils.DateUtils
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import me.saket.telephoto.zoomable.EnabledZoomGestures
+import me.saket.telephoto.zoomable.coil.ZoomableAsyncImage
+import me.saket.telephoto.zoomable.rememberZoomableImageState
+import me.saket.telephoto.zoomable.rememberZoomableState
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
@@ -73,6 +89,13 @@ fun MediaViewerScreen(
     var showActionsMenu by remember { mutableStateOf(false) }
     var albumAction by remember { mutableStateOf<AlbumMenuAction?>(null) }
     var showRenameDialog by remember { mutableStateOf(false) }
+    val density = LocalDensity.current
+    
+    // Swipe-to-dismiss state
+    var verticalDragOffset by remember { mutableFloatStateOf(0f) }
+    var isDraggingVertically by remember { mutableStateOf(false) }
+//    val dismissThreshold = with(density) { 200.dp.toPx() }
+    val velocityTracker = remember { VelocityTracker() }
 
     // Swipe-down-to-dismiss state
     var dragOffsetY by remember { mutableFloatStateOf(0f) }
@@ -103,6 +126,12 @@ fun MediaViewerScreen(
         initialPage = 0,
         pageCount = { uiState.mediaList.size },
     )
+    val previewListState = rememberLazyListState()
+    val videoBottomInset by animateDpAsState(
+        targetValue = if (showControls) 116.dp else 0.dp,
+        animationSpec = tween(180),
+        label = "videoBottomInset",
+    )
 
     // Scroll to the clicked image once the list is loaded
     LaunchedEffect(initialMediaId, uiState.mediaList) {
@@ -122,10 +151,63 @@ fun MediaViewerScreen(
         }
     }
 
+    LaunchedEffect(pagerState.currentPage, uiState.mediaList.size) {
+        if (uiState.mediaList.isNotEmpty()) {
+            val targetIndex = (pagerState.currentPage - 1).coerceAtLeast(0)
+            previewListState.animateScrollToItem(targetIndex)
+        }
+    }
+
+    // Animate the drag offset for smooth transitions
+    val animatedDragOffset by animateFloatAsState(
+        targetValue = verticalDragOffset,
+        animationSpec = tween(100),
+        label = "dragOffset"
+    )
+    
+    // Calculate opacity based on drag distance
+    val dragProgress = kotlin.math.abs(verticalDragOffset) / dismissThreshold
+    val backgroundAlpha = (1f - dragProgress.coerceIn(0f, 1f))
+
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.Black.copy(alpha = bgAlpha))
+            .background(Color.Black.copy(alpha = backgroundAlpha))
+            .pointerInput(Unit) {
+                detectVerticalDragGestures(
+                    onDragStart = { 
+                        isDraggingVertically = true
+                        velocityTracker.resetTracking()
+                    },
+                    onDragEnd = {
+                        isDraggingVertically = false
+                        val velocity = velocityTracker.calculateVelocity().y
+                        // Dismiss if dragged beyond threshold or with enough velocity
+                        if (kotlin.math.abs(verticalDragOffset) > dismissThreshold || 
+                            kotlin.math.abs(velocity) > 1000f) {
+                            onBack()
+                        } else {
+                            // Reset position with animation
+                            verticalDragOffset = 0f
+                        }
+                        velocityTracker.resetTracking()
+                    },
+                    onDragCancel = {
+                        isDraggingVertically = false
+                        verticalDragOffset = 0f
+                        velocityTracker.resetTracking()
+                    },
+                    onVerticalDrag = { change, dragAmount ->
+                        velocityTracker.addPointerInputChange(change)
+                        verticalDragOffset += dragAmount
+                        change.consume()
+                    }
+                )
+            }
+            .graphicsLayer {
+                translationY = animatedDragOffset
+                alpha = backgroundAlpha
+            }
     ) {
         val currentMedia = viewModel.currentMedia()
 
@@ -179,6 +261,7 @@ fun MediaViewerScreen(
                     isCurrentPage = page == pagerState.currentPage,
                     onTap = { showControls = !showControls },
                     onZoomStateChanged = { isZoomed -> canDismissBySwipe = !isZoomed },
+                    bottomInset = videoBottomInset,
                 )
             }
         }
@@ -190,157 +273,202 @@ fun MediaViewerScreen(
             exit = fadeOut() + slideOutVertically(targetOffsetY = { -it }),
             modifier = Modifier.align(Alignment.TopCenter),
         ) {
-            TopAppBar(
-                title = {
-                    Text(
-                        viewModel.currentMedia()?.name.orEmpty(),
-                        style = MaterialTheme.typography.titleMedium,
+            Box(modifier = Modifier.fillMaxWidth()) {
+                val headerMedia = currentMedia
+                if (headerMedia?.mediaType == MediaType.IMAGE) {
+                    AsyncImage(
+                        model = ImageRequest.Builder(LocalContext.current)
+                            .data(headerMedia.uri)
+                            .memoryCachePolicy(CachePolicy.ENABLED)
+                            .build(),
+                        contentDescription = null,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(94.dp)
+                            .blur(20.dp),
                     )
-                },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = Color.White)
-                    }
-                },
-                actions = {
-                    IconButton(onClick = viewModel::toggleFavorite) {
-                        val isFavorite = viewModel.currentMedia()?.isFavorite == true
-                        Icon(
-                            if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                            contentDescription = "Favorite",
-                            tint = if (isFavorite) Color(0xFFFF4081) else Color.White,
-                        )
-                    }
-                    IconButton(onClick = viewModel::toggleInfo) {
-                        Icon(Icons.Default.Info, contentDescription = "Info", tint = Color.White)
-                    }
-                    Box {
-                        IconButton(onClick = { showActionsMenu = true }) {
-                            Icon(Icons.Default.MoreVert, contentDescription = "More actions", tint = Color.White)
+                }
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(94.dp)
+                        .background(
+                            Brush.verticalGradient(
+                                colors = listOf(
+                                    Color.Black.copy(alpha = 0.78f),
+                                    Color.Black.copy(alpha = 0.52f),
+                                    Color.Transparent,
+                                ),
+                            ),
+                        ),
+                )
+                TopAppBar(
+                    modifier = Modifier.height(72.dp),
+                    windowInsets = WindowInsets(0.dp),
+                    title = {
+                        currentMedia?.let { media ->
+                            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                Text(
+                                    text = DateUtils.formatViewerHeaderDate(media.dateAdded),
+                                    style = MaterialTheme.typography.titleSmall,
+                                    color = Color.White,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                Text(
+                                    text = DateUtils.formatViewerHeaderTime(media.dateAdded),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = Color.White.copy(alpha = 0.86f),
+                                )
+                            }
                         }
-                        DropdownMenu(
-                            expanded = showActionsMenu,
-                            onDismissRequest = { showActionsMenu = false },
-                        ) {
-                            DropdownMenuItem(
-                                text = { Text("Move to album") },
-                                onClick = {
-                                    showActionsMenu = false
-                                    if (customAlbums.isEmpty()) {
-                                        coroutineScope.launch {
-                                            snackbarHostState.showSnackbar("Create a custom album first")
-                                        }
-                                    } else {
-                                        albumAction = AlbumMenuAction.Move
-                                    }
-                                },
+                    },
+                    navigationIcon = {
+                        IconButton(onClick = onBack) {
+                            Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = Color.White)
+                        }
+                    },
+                    actions = {
+                        IconButton(onClick = viewModel::toggleFavorite) {
+                            val isFavorite = viewModel.currentMedia()?.isFavorite == true
+                            Icon(
+                                if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                                contentDescription = "Favorite",
+                                tint = if (isFavorite) Color(0xFFFF4081) else Color.White,
                             )
-                            DropdownMenuItem(
-                                text = { Text("Copy to album") },
-                                onClick = {
-                                    showActionsMenu = false
-                                    if (customAlbums.isEmpty()) {
-                                        coroutineScope.launch {
-                                            snackbarHostState.showSnackbar("Create a custom album first")
-                                        }
-                                    } else {
-                                        albumAction = AlbumMenuAction.Copy
-                                    }
-                                },
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Rename") },
-                                onClick = {
-                                    showActionsMenu = false
-                                    showRenameDialog = true
-                                },
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Convert to PDF") },
-                                onClick = {
-                                    showActionsMenu = false
-                                    val media = currentMedia
-                                    if (media?.mediaType != MediaType.IMAGE) {
-                                        coroutineScope.launch {
-                                            snackbarHostState.showSnackbar("PDF conversion is available for images only")
-                                        }
-                                    } else {
-                                        coroutineScope.launch {
-                                            runCatching { convertImageToPdf(context, media) }
-                                                .onSuccess {
-                                                    snackbarHostState.showSnackbar("Saved PDF to Documents")
-                                                }
-                                                .onFailure {
-                                                    snackbarHostState.showSnackbar(it.message ?: "Unable to convert to PDF")
-                                                }
-                                        }
-                                    }
-                                },
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Set as wallpaper") },
-                                onClick = {
-                                    showActionsMenu = false
-                                    currentMedia?.let { media ->
-                                        setAsWallpaper(context, media)
-                                    }
-                                },
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Set as contact avatar") },
-                                onClick = {
-                                    showActionsMenu = false
-                                    val media = currentMedia
-                                    if (media?.mediaType != MediaType.IMAGE) {
-                                        coroutineScope.launch {
-                                            snackbarHostState.showSnackbar("Contact avatar is available for images only")
-                                        }
-                                    } else if (media != null) {
-                                        setAsContactAvatar(context, media)
-                                    }
-                                },
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Set as private") },
-                                onClick = {
-                                    showActionsMenu = false
-                                    viewModel.moveToPrivateSafe(
-                                        onDone = onBack,
-                                        onResult = { message ->
+                        }
+                        IconButton(onClick = viewModel::toggleInfo) {
+                            Icon(Icons.Default.Info, contentDescription = "Info", tint = Color.White)
+                        }
+                        Box {
+                            IconButton(onClick = { showActionsMenu = true }) {
+                                Icon(Icons.Default.MoreVert, contentDescription = "More actions", tint = Color.White)
+                            }
+                            DropdownMenu(
+                                expanded = showActionsMenu,
+                                onDismissRequest = { showActionsMenu = false },
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("Move to album") },
+                                    onClick = {
+                                        showActionsMenu = false
+                                        if (customAlbums.isEmpty()) {
                                             coroutineScope.launch {
-                                                snackbarHostState.showSnackbar(message)
+                                                snackbarHostState.showSnackbar("Create a custom album first")
                                             }
-                                        },
-                                    )
-                                },
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Convert to compatible format") },
-                                onClick = {
-                                    showActionsMenu = false
-                                    val media = currentMedia
-                                    if (media?.mediaType != MediaType.IMAGE) {
-                                        coroutineScope.launch {
-                                            snackbarHostState.showSnackbar("Compatible conversion is available for images only")
+                                        } else {
+                                            albumAction = AlbumMenuAction.Move
                                         }
-                                    } else {
-                                        coroutineScope.launch {
-                                            runCatching { convertImageToCompatibleFormat(context, media) }
-                                                .onSuccess {
-                                                    snackbarHostState.showSnackbar("Saved compatible copy to Pictures")
-                                                }
-                                                .onFailure {
-                                                    snackbarHostState.showSnackbar(it.message ?: "Unable to convert format")
-                                                }
+                                    },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Copy to album") },
+                                    onClick = {
+                                        showActionsMenu = false
+                                        if (customAlbums.isEmpty()) {
+                                            coroutineScope.launch {
+                                                snackbarHostState.showSnackbar("Create a custom album first")
+                                            }
+                                        } else {
+                                            albumAction = AlbumMenuAction.Copy
                                         }
-                                    }
-                                },
-                            )
+                                    },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Rename") },
+                                    onClick = {
+                                        showActionsMenu = false
+                                        showRenameDialog = true
+                                    },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Convert to PDF") },
+                                    onClick = {
+                                        showActionsMenu = false
+                                        val media = currentMedia
+                                        if (media?.mediaType != MediaType.IMAGE) {
+                                            coroutineScope.launch {
+                                                snackbarHostState.showSnackbar("PDF conversion is available for images only")
+                                            }
+                                        } else {
+                                            coroutineScope.launch {
+                                                runCatching { convertImageToPdf(context, media) }
+                                                    .onSuccess {
+                                                        snackbarHostState.showSnackbar("Saved PDF to Documents")
+                                                    }
+                                                    .onFailure {
+                                                        snackbarHostState.showSnackbar(it.message ?: "Unable to convert to PDF")
+                                                    }
+                                            }
+                                        }
+                                    },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Set as wallpaper") },
+                                    onClick = {
+                                        showActionsMenu = false
+                                        currentMedia?.let { media ->
+                                            setAsWallpaper(context, media)
+                                        }
+                                    },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Set as contact avatar") },
+                                    onClick = {
+                                        showActionsMenu = false
+                                        val media = currentMedia
+                                        if (media?.mediaType != MediaType.IMAGE) {
+                                            coroutineScope.launch {
+                                                snackbarHostState.showSnackbar("Contact avatar is available for images only")
+                                            }
+                                        } else if (media != null) {
+                                            setAsContactAvatar(context, media)
+                                        }
+                                    },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Set as private") },
+                                    onClick = {
+                                        showActionsMenu = false
+                                        viewModel.moveToPrivateSafe(
+                                            onDone = onBack,
+                                            onResult = { message ->
+                                                coroutineScope.launch {
+                                                    snackbarHostState.showSnackbar(message)
+                                                }
+                                            },
+                                        )
+                                    },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Convert to compatible format") },
+                                    onClick = {
+                                        showActionsMenu = false
+                                        val media = currentMedia
+                                        if (media?.mediaType != MediaType.IMAGE) {
+                                            coroutineScope.launch {
+                                                snackbarHostState.showSnackbar("Compatible conversion is available for images only")
+                                            }
+                                        } else {
+                                            coroutineScope.launch {
+                                                runCatching { convertImageToCompatibleFormat(context, media) }
+                                                    .onSuccess {
+                                                        snackbarHostState.showSnackbar("Saved compatible copy to Pictures")
+                                                    }
+                                                    .onFailure {
+                                                        snackbarHostState.showSnackbar(it.message ?: "Unable to convert format")
+                                                    }
+                                            }
+                                        }
+                                    },
+                                )
+                            }
                         }
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent),
-            )
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent),
+                )
+            }
         }
 
         // Bottom controls
@@ -350,43 +478,102 @@ fun MediaViewerScreen(
             exit = fadeOut() + slideOutVertically(targetOffsetY = { it }),
             modifier = Modifier.align(Alignment.BottomCenter),
         ) {
-            val media = viewModel.currentMedia()
-            Row(
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(Color.Black.copy(alpha = 0.5f))
-                    .padding(horizontal = 16.dp, vertical = 12.dp)
+                    .background(
+                        Brush.verticalGradient(
+                            colors = listOf(
+                                Color.Transparent,
+                                Color.Black.copy(alpha = 0.46f),
+                                Color.Black.copy(alpha = 0.76f),
+                            ),
+                        ),
+                    )
+                    .padding(horizontal = 12.dp, vertical = 8.dp)
                     .navigationBarsPadding(),
-                horizontalArrangement = Arrangement.SpaceEvenly,
+                verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                IconButton(onClick = {
-                    media?.let { m ->
-                        val intent = Intent(Intent.ACTION_SEND).apply {
-                            type = m.mimeType
-                            putExtra(Intent.EXTRA_STREAM, m.uri)
-                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                if (uiState.mediaList.isNotEmpty()) {
+                    LazyRow(
+                        state = previewListState,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        contentPadding = PaddingValues(horizontal = 2.dp),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        itemsIndexed(
+                            items = uiState.mediaList,
+                            key = { _, media -> media.id },
+                        ) { index, media ->
+                            val isSelected = index == pagerState.currentPage
+                            AsyncImage(
+                                model = ImageRequest.Builder(LocalContext.current)
+                                    .data(media.uri)
+                                    .crossfade(120)
+                                    .memoryCachePolicy(CachePolicy.ENABLED)
+                                    .build(),
+                                contentDescription = media.name,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier
+                                    .size(width = 44.dp, height = 56.dp)
+                                    .border(
+                                        width = if (isSelected) 2.dp else 1.dp,
+                                        color = if (isSelected) Color.White else Color.White.copy(alpha = 0.28f),
+                                        shape = RoundedCornerShape(10.dp),
+                                    )
+                                    .padding(1.dp)
+                                    .clip(RoundedCornerShape(9.dp))
+                                    .background(Color.White.copy(alpha = 0.08f))
+                                    .pointerInput(index) {
+                                        detectTapGestures {
+                                            coroutineScope.launch {
+                                                pagerState.animateScrollToPage(index)
+                                            }
+                                        }
+                                    },
+                            )
                         }
-                        context.startActivity(Intent.createChooser(intent, "Share"))
                     }
-                }) {
-                    Icon(Icons.Default.Share, contentDescription = "Share", tint = Color.White)
                 }
-                IconButton(onClick = {
-                    viewModel.moveToTrash(onDone = onBack)
-                }) {
-                    Icon(Icons.Default.Delete, contentDescription = "Delete", tint = Color.White)
-                }
-                IconButton(onClick = {
-                    media?.let { m ->
-                        val wallpaperIntent = Intent(Intent.ACTION_ATTACH_DATA).apply {
-                            setDataAndType(m.uri, m.mimeType)
-                            putExtra("mimeType", m.mimeType)
-                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+
+                val media = viewModel.currentMedia()
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(Color.Black.copy(alpha = 0.34f), RoundedCornerShape(20.dp))
+                        .padding(horizontal = 10.dp, vertical = 2.dp),
+                    horizontalArrangement = Arrangement.SpaceEvenly,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    IconButton(onClick = {
+                        media?.let { m ->
+                            val intent = Intent(Intent.ACTION_SEND).apply {
+                                type = m.mimeType
+                                putExtra(Intent.EXTRA_STREAM, m.uri)
+                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                            }
+                            context.startActivity(Intent.createChooser(intent, "Share"))
                         }
-                        context.startActivity(Intent.createChooser(wallpaperIntent, "Set as wallpaper"))
+                    }) {
+                        Icon(Icons.Default.Share, contentDescription = "Share", tint = Color.White)
                     }
-                }) {
-                    Icon(Icons.Default.Wallpaper, contentDescription = "Set wallpaper", tint = Color.White)
+                    IconButton(onClick = {
+                        viewModel.moveToTrash(onDone = onBack)
+                    }) {
+                        Icon(Icons.Default.Delete, contentDescription = "Delete", tint = Color.White)
+                    }
+                    IconButton(onClick = {
+                        media?.let { m ->
+                            val wallpaperIntent = Intent(Intent.ACTION_ATTACH_DATA).apply {
+                                setDataAndType(m.uri, m.mimeType)
+                                putExtra("mimeType", m.mimeType)
+                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                            }
+                            context.startActivity(Intent.createChooser(wallpaperIntent, "Set as wallpaper"))
+                        }
+                    }) {
+                        Icon(Icons.Default.Wallpaper, contentDescription = "Set wallpaper", tint = Color.White)
+                    }
                 }
             }
         }
@@ -467,6 +654,7 @@ private fun MediaPage(
     isCurrentPage: Boolean,
     onTap: () -> Unit,
     onZoomStateChanged: (Boolean) -> Unit,
+    bottomInset: Dp,
 ) {
     if (media.mediaType == MediaType.VIDEO) {
         LaunchedEffect(isCurrentPage) {
@@ -474,7 +662,7 @@ private fun MediaPage(
                 onZoomStateChanged(false)
             }
         }
-        VideoPlayer(uri = media.uri, onTap = onTap)
+        VideoPlayer(uri = media.uri, onTap = onTap, bottomInset = bottomInset)
     } else {
         ZoomableImage(
             uri = media.uri,
@@ -494,84 +682,43 @@ private fun ZoomableImage(
     isCurrentPage: Boolean,
     onZoomStateChanged: (Boolean) -> Unit,
 ) {
-    var scale by remember { mutableFloatStateOf(1f) }
-    var offset by remember { mutableStateOf(Offset.Zero) }
+    val context = LocalContext.current
+    val zoomableState = rememberZoomableState()
+    val zoomableImageState = rememberZoomableImageState(zoomableState)
 
-    LaunchedEffect(isCurrentPage, scale) {
-        if (isCurrentPage) {
-            onZoomStateChanged(scale > 1.02f)
+    LaunchedEffect(isCurrentPage) {
+        if (!isCurrentPage) {
+            onZoomStateChanged(false)
         }
     }
 
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .clipToBounds()
-            .pointerInput(Unit) {
-                detectTapGestures(
-                    onTap = { onTap() },
-                    onDoubleTap = {
-                        if (scale > 1f) {
-                            scale = 1f
-                            offset = Offset.Zero
-                        } else {
-                            scale = 2.5f
-                        }
-                    },
-                )
+    LaunchedEffect(zoomableState, isCurrentPage) {
+        if (!isCurrentPage) return@LaunchedEffect
+
+        snapshotFlow { (zoomableState.zoomFraction ?: 0f) > 0.01f }
+            .distinctUntilChanged()
+            .collect { isZoomed ->
+                onZoomStateChanged(isZoomed)
             }
-            .pointerInput(Unit) {
-                awaitEachGesture {
-                    do {
-                        val event = awaitPointerEvent()
-                        val isTransformGesture = event.changes.size > 1 || scale > 1f
-                        if (isTransformGesture) {
-                            val zoom = event.calculateZoom()
-                            val pan = event.calculatePan()
-                            val newScale = (scale * zoom).coerceIn(1f, 5f)
-                            scale = newScale
-                            if (newScale > 1f) {
-                                offset += pan
-                            } else {
-                                offset = Offset.Zero
-                            }
-                            event.changes.forEach { change ->
-                                if (change.positionChanged()) {
-                                    change.consume()
-                                }
-                            }
-                        }
-                    } while (event.changes.any { it.pressed })
-                    if (scale <= 1f) {
-                        scale = 1f
-                        offset = Offset.Zero
-                    }
-                }
-            },
-        contentAlignment = Alignment.Center,
-    ) {
-        AsyncImage(
-            model = ImageRequest.Builder(LocalContext.current)
-                .data(uri)
-                .crossfade(200)
-                .memoryCachePolicy(CachePolicy.ENABLED)
-                .build(),
-            contentDescription = name,
-            contentScale = ContentScale.Fit,
-            modifier = Modifier
-                .fillMaxSize()
-                .graphicsLayer(
-                    scaleX = scale,
-                    scaleY = scale,
-                    translationX = offset.x,
-                    translationY = offset.y,
-                ),
-        )
     }
+
+    ZoomableAsyncImage(
+        model = ImageRequest.Builder(context)
+            .data(uri)
+            .crossfade(200)
+            .memoryCachePolicy(CachePolicy.ENABLED)
+            .build(),
+        contentDescription = name,
+        modifier = Modifier.fillMaxSize(),
+        state = zoomableImageState,
+        contentScale = ContentScale.Fit,
+        gestures = if (isCurrentPage) EnabledZoomGestures.ZoomAndPan else EnabledZoomGestures.None,
+        onClick = { onTap() },
+    )
 }
 
 @Composable
-private fun VideoPlayer(uri: Uri, onTap: () -> Unit) {
+private fun VideoPlayer(uri: Uri, onTap: () -> Unit, bottomInset: Dp) {
     val context = LocalContext.current
     val exoPlayer = remember {
         ExoPlayer.Builder(context).build().apply {
@@ -590,7 +737,9 @@ private fun VideoPlayer(uri: Uri, onTap: () -> Unit) {
                     useController = true
                 }
             },
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(bottom = bottomInset),
         )
     }
 }

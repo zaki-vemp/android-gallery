@@ -93,6 +93,7 @@ dependencies {
     // Coil
     implementation(libs.coil.compose)
     implementation(libs.coil.video)
+    implementation(libs.telephoto.zoomable.image.coil)
 
     // ExoPlayer / Media3
     implementation(libs.media3.exoplayer)

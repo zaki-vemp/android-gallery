@@ -5,20 +5,39 @@ import java.util.*
 import java.util.concurrent.TimeUnit
 
 object DateUtils {
-    private val today = Calendar.getInstance().apply {
-        set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0)
+    private fun startOfDay(offsetDays: Int = 0): Long = Calendar.getInstance().apply {
+        set(Calendar.HOUR_OF_DAY, 0)
+        set(Calendar.MINUTE, 0)
+        set(Calendar.SECOND, 0)
+        set(Calendar.MILLISECOND, 0)
+        add(Calendar.DAY_OF_YEAR, offsetDays)
     }.timeInMillis
-
-    private val yesterday = today - TimeUnit.DAYS.toMillis(1)
 
     fun formatGroupDate(timestamp: Long): String {
         val millis = timestamp * 1000L
+        val today = startOfDay()
+        val yesterday = startOfDay(-1)
         return when {
             millis >= today -> "Today"
             millis >= yesterday -> "Yesterday"
             else -> SimpleDateFormat("MMMM d, yyyy", Locale.getDefault()).format(Date(millis))
         }
     }
+
+    fun formatViewerHeaderDate(timestamp: Long): String {
+        val millis = timestamp * 1000L
+        val today = startOfDay()
+        val tomorrow = startOfDay(1)
+        val dayAfterTomorrow = startOfDay(2)
+        return when {
+            millis >= today && millis < tomorrow -> "Today"
+            millis >= tomorrow && millis < dayAfterTomorrow -> "Tomorrow"
+            else -> SimpleDateFormat("EEE, MMM d yyyy", Locale.getDefault()).format(Date(millis))
+        }
+    }
+
+    fun formatViewerHeaderTime(timestamp: Long): String =
+        SimpleDateFormat("h:mm a", Locale.getDefault()).format(Date(timestamp * 1000L))
 
     fun formatDetailDate(timestamp: Long): String =
         SimpleDateFormat("EEE, MMM d yyyy • HH:mm", Locale.getDefault()).format(Date(timestamp * 1000L))
