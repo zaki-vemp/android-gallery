@@ -26,8 +26,9 @@ class AlbumRepositoryImpl @Inject constructor(
     override fun getAlbums(): Flow<List<Album>> {
         val mediaFlow = mediaDao.getAllMedia()
         val albumsFlow = albumDao.getAllAlbums()
+        val albumMediaFlow = albumDao.getAllAlbumMedia()
 
-        return combine(mediaFlow, albumsFlow) { allMedia, dbAlbums ->
+        return combine(mediaFlow, albumsFlow, albumMediaFlow) { allMedia, dbAlbums, albumMedia ->
             val bucketAlbums = allMedia
                 .filter { !it.isInTrash && !it.isInSafe }
                 .groupBy { it.bucketId }
@@ -44,17 +45,23 @@ class AlbumRepositoryImpl @Inject constructor(
                 }
                 .sortedByDescending { it.mediaCount }
 
+            val mediaById = allMedia.associateBy { it.id }
+            val mediaIdsByAlbum = albumMedia.groupBy { it.albumId }
+
             val userAlbums = dbAlbums.map { entity ->
+                val albumItems = mediaIdsByAlbum[entity.id]
+                    .orEmpty()
+                    .mapNotNull { ref -> mediaById[ref.mediaId] }
                 Album(
                     id = entity.id,
                     name = entity.name,
-                    coverUri = null,
-                    mediaCount = 0,
+                    coverUri = albumItems.firstOrNull()?.let { Uri.parse(it.uri) },
+                    mediaCount = albumItems.size,
                     isUserCreated = true,
                 )
             }
 
-            (bucketAlbums + userAlbums).distinctBy { it.name }
+            bucketAlbums + userAlbums
         }
     }
 

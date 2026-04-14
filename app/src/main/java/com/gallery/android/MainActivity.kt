@@ -4,6 +4,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -14,9 +15,11 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.gallery.android.ui.navigation.GalleryBottomNavBar
 import com.gallery.android.ui.navigation.GalleryNavHost
+import com.gallery.android.ui.navigation.bottomNavScreens
 import com.gallery.android.ui.theme.GalleryTheme
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.rememberMultiplePermissionsState
@@ -60,10 +63,20 @@ fun GalleryApp() {
     }
 
     val navController = rememberNavController()
+    val navBackStackEntry by navController.currentBackStackEntryAsState()
+    val currentRoute = navBackStackEntry?.destination?.route
+    val showBottomBar = bottomNavScreens.any { it.route == currentRoute }
+
     Scaffold(
         modifier = Modifier.fillMaxSize(),
-        bottomBar = { GalleryBottomNavBar(navController) },
-    ) { _ ->
-        GalleryNavHost(navController)
+        bottomBar = {
+            if (showBottomBar) {
+                GalleryBottomNavBar(navController)
+            }
+        },
+    ) { innerPadding ->
+        Box(modifier = Modifier.padding(innerPadding)) {
+            GalleryNavHost(navController)
+        }
     }
 }

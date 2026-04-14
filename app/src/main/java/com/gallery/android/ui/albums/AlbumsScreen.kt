@@ -24,7 +24,7 @@ import com.gallery.android.domain.model.Album
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AlbumsScreen(
-    onAlbumClick: (Long) -> Unit,
+    onAlbumClick: (Album) -> Unit,
     viewModel: AlbumsViewModel = hiltViewModel(),
 ) {
     val albums by viewModel.albums.collectAsStateWithLifecycle()
@@ -47,12 +47,20 @@ fun AlbumsScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding),
-            contentPadding = PaddingValues(12.dp),
+            contentPadding = PaddingValues(start = 12.dp, top = 12.dp, end = 12.dp, bottom = 24.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            items(albums, key = { it.id }) { album ->
-                AlbumCard(album = album, onClick = { onAlbumClick(album.bucketId) })
+            items(
+                items = albums,
+                key = { album ->
+                    if (album.isUserCreated) "user-${album.id}" else "bucket-${album.bucketId}"
+                },
+            ) { album ->
+                AlbumCard(
+                    album = album,
+                    onClick = { onAlbumClick(album) },
+                )
             }
         }
     }
@@ -98,7 +106,11 @@ private fun AlbumCard(album: Album, onClick: () -> Unit) {
             }
             Column(modifier = Modifier.padding(12.dp)) {
                 Text(album.name, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, maxLines = 1)
-                Text("${album.mediaCount} items", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+                Text(
+                    if (album.isUserCreated) "Custom album" else "${album.mediaCount} items",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.outline,
+                )
             }
         }
     }

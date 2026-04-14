@@ -25,6 +25,9 @@ interface AlbumDao {
     @Delete
     suspend fun removeMediaFromAlbum(crossRef: AlbumMediaCrossRef)
 
+    @Query("SELECT * FROM album_media")
+    fun getAllAlbumMedia(): Flow<List<AlbumMediaCrossRef>>
+
     @Query("SELECT mediaId FROM album_media WHERE albumId = :albumId")
     fun getMediaIdsForAlbum(albumId: Long): Flow<List<Long>>
 }
