@@ -88,7 +88,7 @@ fun MediaViewerScreen(
             TopAppBar(
                 title = {
                     Text(
-                        text = uiState.currentMedia()?.name ?: "",
+                        text = viewModel.currentMedia()?.name ?: "",
                         color = Color.White,
                         style = MaterialTheme.typography.titleMedium,
                     )
@@ -100,7 +100,7 @@ fun MediaViewerScreen(
                 },
                 actions = {
                     IconButton(onClick = viewModel::toggleFavorite) {
-                        val isFavorite = uiState.currentMedia()?.isFavorite == true
+                        val isFavorite = viewModel.currentMedia()?.isFavorite == true
                         Icon(
                             if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
                             contentDescription = "Favorite",
@@ -122,7 +122,7 @@ fun MediaViewerScreen(
             exit = fadeOut() + slideOutVertically(targetOffsetY = { it }),
             modifier = Modifier.align(Alignment.BottomCenter),
         ) {
-            val media = uiState.currentMedia()
+            val media = viewModel.currentMedia()
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -165,7 +165,7 @@ fun MediaViewerScreen(
 
         // Info sheet
         if (uiState.showInfo) {
-            uiState.currentMedia()?.let { media ->
+            viewModel.currentMedia()?.let { media ->
                 MediaInfoSheet(media = media, onDismiss = viewModel::toggleInfo)
             }
         }
