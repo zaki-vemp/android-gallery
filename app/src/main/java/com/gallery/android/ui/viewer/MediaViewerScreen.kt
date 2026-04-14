@@ -177,48 +177,23 @@ fun MediaViewerScreen(
                 MediaPage(
                     media = media,
                     isCurrentPage = page == pagerState.currentPage,
-                                awaitEachGesture {
-                                    val down = awaitFirstDown(requireUnconsumed = false)
-                                    var totalX = 0f
-                                    var totalY = 0f
-                                    var directionLocked = false
-                                    var isVerticalGesture = false
-                                    var pointerStillDown = true
+                    onTap = { showControls = !showControls },
+                    onZoomStateChanged = { isZoomed -> canDismissBySwipe = !isZoomed },
+                )
+            }
+        }
 
-                                    while (pointerStillDown) {
-                                        val event = awaitPointerEvent()
-                                        val change = event.changes.firstOrNull { it.id == down.id } ?: break
-                                        if (!change.pressed) {
-                                            pointerStillDown = false
-                                            break
-                                        }
-
-                                        val delta = change.positionChange()
-                                        totalX += delta.x
-                                        totalY += delta.y
-
-                                        if (!directionLocked && (abs(totalX) > 12f || abs(totalY) > 12f)) {
-                                            directionLocked = true
-                                            isVerticalGesture = abs(totalY) > abs(totalX)
-                                        }
-
-                                        if (directionLocked && isVerticalGesture) {
-                                            change.consume()
-                                            dragOffsetY += delta.y
-                                            if (abs(dragOffsetY) > 10f) {
-                                                showControls = false
-                                            }
+        // Top controls overlay
+        AnimatedVisibility(
+            visible = showControls,
+            enter = fadeIn() + slideInVertically(initialOffsetY = { -it }),
+            exit = fadeOut() + slideOutVertically(targetOffsetY = { -it }),
+            modifier = Modifier.align(Alignment.TopCenter),
+        ) {
+            TopAppBar(
+                title = {
                     Text(
-                                    }
-
-                                    if (directionLocked && isVerticalGesture) {
-                                        if (abs(dragOffsetY) > dismissThreshold) {
-                                            isDismissing = true
-                                        } else if (abs(dragOffsetY) > 1f) {
-                                            isSnappingBack = true
-                                        }
-                                    }
-                                }
+                        viewModel.currentMedia()?.name.orEmpty(),
                         style = MaterialTheme.typography.titleMedium,
                     )
                 },

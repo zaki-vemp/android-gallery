@@ -64,7 +64,10 @@ fun GalleryNavHost(navController: NavHostController) {
                     } else {
                         navController.navigate("album/${album.bucketId}")
                     }
-                }
+                },
+                onFavoritesClick = { navController.navigate("favorites") },
+                onTrashClick = { navController.navigate("trash") },
+                onSafeClick = { navController.navigate(Screen.Safe.route) },
             )
         }
         composable(Screen.Search.route) {
