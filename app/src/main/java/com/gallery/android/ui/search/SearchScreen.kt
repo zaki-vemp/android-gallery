@@ -64,7 +64,12 @@ fun SearchScreen(
             shape = MaterialTheme.shapes.extraLarge,
         )
 
-        AnimatedVisibility(visible = query.isBlank(), enter = fadeIn(), exit = fadeOut()) {
+        // Always show category row when search is empty (even with a category selected)
+        AnimatedVisibility(
+            visible = query.isBlank(),
+            enter = fadeIn(),
+            exit = fadeOut(),
+        ) {
             Column {
                 Text(
                     text = "Browse by Category",
