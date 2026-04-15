@@ -75,4 +75,13 @@ interface MediaDao {
 
     @Query("SELECT * FROM media WHERE mimeType LIKE 'video/%' AND isInTrash = 0 AND isInSafe = 0 ORDER BY dateAdded DESC")
     suspend fun getVideosList(): List<MediaEntity>
+
+    @Query("SELECT * FROM media WHERE (lower(bucketName) LIKE '%screenshot%' OR lower(bucketName) LIKE '%screenrecord%' OR lower(bucketName) LIKE '%screen record%') AND isInTrash = 0 AND isInSafe = 0 ORDER BY dateAdded DESC")
+    suspend fun getScreenshots(): List<MediaEntity>
+
+    @Query("SELECT * FROM media WHERE (lower(bucketName) LIKE '%' || lower(:keyword) || '%') AND isInTrash = 0 AND isInSafe = 0 ORDER BY dateAdded DESC")
+    suspend fun searchByBucketKeyword(keyword: String): List<MediaEntity>
+
+    @Query("SELECT * FROM media WHERE isInTrash = 0 AND isInSafe = 0 ORDER BY dateAdded DESC")
+    suspend fun getAllMediaList(): List<MediaEntity>
 }

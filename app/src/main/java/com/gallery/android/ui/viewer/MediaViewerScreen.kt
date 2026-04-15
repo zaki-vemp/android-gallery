@@ -45,6 +45,9 @@ import androidx.compose.ui.input.pointer.util.addPointerInputChange
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
@@ -86,6 +89,7 @@ fun MediaViewerScreen(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val customAlbums by viewModel.customAlbums.collectAsStateWithLifecycle()
+    val showOcrPanel = uiState.showOcrPanel
     var showControls by remember { mutableStateOf(true) }
     val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
@@ -344,6 +348,15 @@ fun MediaViewerScreen(
                                 tint = if (isFavorite) Color(0xFFFF4081) else Color.White,
                             )
                         }
+                        if (viewModel.currentMedia()?.mediaType == MediaType.IMAGE) {
+                            IconButton(onClick = viewModel::toggleOcrPanel) {
+                                Icon(
+                                    Icons.Default.TextFields,
+                                    contentDescription = "Read text",
+                                    tint = if (showOcrPanel) MaterialTheme.colorScheme.primary else Color.White,
+                                )
+                            }
+                        }
                         IconButton(onClick = viewModel::toggleInfo) {
                             Icon(Icons.Default.Info, contentDescription = "Info", tint = Color.White)
                         }
@@ -601,6 +614,15 @@ fun MediaViewerScreen(
             viewModel.currentMedia()?.let { media ->
                 MediaInfoSheet(media = media, onDismiss = viewModel::toggleInfo)
             }
+        }
+
+        // OCR text panel
+        if (uiState.showOcrPanel) {
+            OcrTextPanel(
+                ocrText = uiState.ocrText,
+                isLoading = uiState.isOcrLoading,
+                onDismiss = viewModel::toggleOcrPanel,
+            )
         }
 
         SnackbarHost(
@@ -1219,6 +1241,85 @@ private suspend fun decodeBitmap(context: android.content.Context, uri: Uri): Bi
             MediaStore.Images.Media.getBitmap(context.contentResolver, uri)
         }
     }
+
+@Composable
+private fun OcrTextPanel(
+    ocrText: String,
+    isLoading: Boolean,
+    onDismiss: () -> Unit,
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.6f)),
+        contentAlignment = Alignment.BottomCenter,
+    ) {
+        Surface(
+            shape = MaterialTheme.shapes.extraLarge,
+            tonalElevation = 8.dp,
+            modifier = Modifier
+                .fillMaxWidth()
+                .fillMaxHeight(0.55f),
+        ) {
+            Column(modifier = Modifier.padding(24.dp).navigationBarsPadding()) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        "Text in Image",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    IconButton(onClick = onDismiss) {
+                        Icon(Icons.Default.Close, contentDescription = "Close")
+                    }
+                }
+
+                Text(
+                    text = "Long-press text to select and copy",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.outline,
+                    modifier = Modifier.padding(bottom = 12.dp),
+                )
+
+                when {
+                    isLoading -> {
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(12.dp),
+                            ) {
+                                CircularProgressIndicator()
+                                Text(
+                                    "Reading text from image…",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.outline,
+                                )
+                            }
+                        }
+                    }
+                    else -> {
+                        SelectionContainer(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .verticalScroll(rememberScrollState()),
+                        ) {
+                            Text(
+                                text = ocrText,
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
 
 @Composable
 private fun MediaInfoSheet(media: MediaItem, onDismiss: () -> Unit) {

@@ -64,7 +64,28 @@ class MediaRepositoryImpl @Inject constructor(
         return when (category) {
             MediaCategory.FAVORITES -> mediaDao.getFavoritesList().map { it.toDomain() }
             MediaCategory.VIDEOS -> mediaDao.getVideosList().map { it.toDomain() }
-            else -> ocrMetadataDao.getByCategory(category.name).map { it.toDomain() }
+            MediaCategory.SCREENSHOTS -> mediaDao.getScreenshots().map { it.toDomain() }
+            else -> {
+                // Merge results: items already OCR-classified + items whose folder name matches keywords
+                val ocrResults = ocrMetadataDao.getByCategory(category.name).map { it.toDomain() }
+                val bucketKeywords = when (category) {
+                    MediaCategory.PEOPLE -> listOf("selfie", "portrait", "family", "people", "wedding", "graduation")
+                    MediaCategory.DOCUMENTS -> listOf("document", "scan", "receipt", "invoice", "ticket", "pdf")
+                    MediaCategory.FOOD -> listOf("food", "recipe", "restaurant", "cafe", "meal", "menu")
+                    MediaCategory.TRAVEL -> listOf("travel", "trip", "vacation", "holiday", "tour", "flight")
+                    MediaCategory.OTHERS -> emptyList()
+                    else -> emptyList()
+                }
+                val bucketResults = bucketKeywords
+                    .flatMap { kw -> mediaDao.searchByBucketKeyword(kw).map { it.toDomain() } }
+                val merged = (bucketResults + ocrResults).distinctBy { it.id }
+                if (merged.isNotEmpty() || category != MediaCategory.OTHERS) {
+                    merged
+                } else {
+                    // OTHERS fallback: all images not matched by other categories
+                    mediaDao.getAllMediaList().map { it.toDomain() }
+                }
+            }
         }
     }
 
