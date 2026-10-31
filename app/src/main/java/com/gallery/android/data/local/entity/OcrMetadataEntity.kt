@@ -1,7 +1,6 @@
 package com.gallery.android.data.local.entity
 
 import androidx.room.Entity
-import androidx.room.ForeignKey
 import androidx.room.Index
 import androidx.room.PrimaryKey
 
@@ -14,4 +13,7 @@ data class OcrMetadataEntity(
     val extractedText: String,
     val category: String,
     val scannedAt: Long,
+    val labels: String = "",
+    val sourceModified: Long = 0L,
+    val concepts: String = "",
 )

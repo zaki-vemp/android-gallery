@@ -1,46 +1,48 @@
 package com.gallery.android.utils
 
-import java.text.SimpleDateFormat
-import java.util.*
+import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 import java.util.concurrent.TimeUnit
 
 object DateUtils {
-    private fun startOfDay(offsetDays: Int = 0): Long = Calendar.getInstance().apply {
-        set(Calendar.HOUR_OF_DAY, 0)
-        set(Calendar.MINUTE, 0)
-        set(Calendar.SECOND, 0)
-        set(Calendar.MILLISECOND, 0)
-        add(Calendar.DAY_OF_YEAR, offsetDays)
-    }.timeInMillis
+    private val groupFormatter: DateTimeFormatter =
+        DateTimeFormatter.ofPattern("EEE, d MMM", Locale.getDefault())
+    private val viewerDateFormatter: DateTimeFormatter =
+        DateTimeFormatter.ofPattern("EEE, MMM d yyyy", Locale.getDefault())
+    private val viewerTimeFormatter: DateTimeFormatter =
+        DateTimeFormatter.ofPattern("h:mm a", Locale.getDefault())
+    private val detailFormatter: DateTimeFormatter =
+        DateTimeFormatter.ofPattern("EEE, MMM d yyyy • HH:mm", Locale.getDefault())
 
     fun formatGroupDate(timestamp: Long): String {
-        val millis = timestamp * 1000L
-        val today = startOfDay()
-        val yesterday = startOfDay(-1)
-        return when {
-            millis >= today -> "Today"
-            millis >= yesterday -> "Yesterday"
-            else -> SimpleDateFormat("EEE, d MMM", Locale.getDefault()).format(Date(millis))
+        val date = Instant.ofEpochSecond(timestamp).atZone(ZoneId.systemDefault()).toLocalDate()
+        val today = LocalDate.now()
+        return when (date) {
+            today -> "Today"
+            today.minusDays(1) -> "Yesterday"
+            else -> groupFormatter.format(date)
         }
     }
 
     fun formatViewerHeaderDate(timestamp: Long): String {
-        val millis = timestamp * 1000L
-        val today = startOfDay()
-        val tomorrow = startOfDay(1)
-        val yesterday = startOfDay(-1)
-        return when {
-            millis >= today && millis < tomorrow -> "Today"
-            millis >= yesterday && millis < today -> "Yesterday"
-            else -> SimpleDateFormat("EEE, MMM d yyyy", Locale.getDefault()).format(Date(millis))
+        val zoned = Instant.ofEpochSecond(timestamp).atZone(ZoneId.systemDefault())
+        val date = zoned.toLocalDate()
+        val today = LocalDate.now()
+        return when (date) {
+            today -> "Today"
+            today.minusDays(1) -> "Yesterday"
+            else -> viewerDateFormatter.format(date)
         }
     }
 
     fun formatViewerHeaderTime(timestamp: Long): String =
-        SimpleDateFormat("h:mm a", Locale.getDefault()).format(Date(timestamp * 1000L))
+        viewerTimeFormatter.format(Instant.ofEpochSecond(timestamp).atZone(ZoneId.systemDefault()))
 
     fun formatDetailDate(timestamp: Long): String =
-        SimpleDateFormat("EEE, MMM d yyyy • HH:mm", Locale.getDefault()).format(Date(timestamp * 1000L))
+        detailFormatter.format(Instant.ofEpochSecond(timestamp).atZone(ZoneId.systemDefault()))
 
     fun formatDuration(millis: Long): String {
         val seconds = millis / 1000

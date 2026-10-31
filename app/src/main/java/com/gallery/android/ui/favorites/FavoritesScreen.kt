@@ -30,7 +30,6 @@ import androidx.lifecycle.viewModelScope
 import com.gallery.android.domain.model.MediaItem
 import com.gallery.android.domain.usecase.FavoriteMediaUseCase
 import com.gallery.android.ui.components.GalleryEmptyState
-import com.gallery.android.ui.components.GalleryMotion
 import com.gallery.android.ui.components.MediaThumbnail
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.SharingStarted
@@ -93,11 +92,6 @@ fun FavoritesScreen(
                         isSelected = false,
                         onClick = { onMediaClick(media.id) },
                         cornerRadius = 8,
-                        modifier = Modifier.animateItem(
-                            fadeInSpec = GalleryMotion.Medium,
-                            placementSpec = GalleryMotion.Placement,
-                            fadeOutSpec = GalleryMotion.Fast,
-                        ),
                     )
                 }
             }

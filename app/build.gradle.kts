@@ -28,6 +28,17 @@ android {
                 arguments += mapOf("room.schemaLocation" to "$projectDir/schemas")
             }
         }
+
+        ndk {
+            abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64")
+        }
+
+        externalNativeBuild {
+            cmake {
+                arguments += listOf("-DANDROID_STL=c++_static")
+                cppFlags += listOf("-std=c++17")
+            }
+        }
     }
 
     buildTypes {
@@ -57,15 +68,26 @@ android {
         compose = true
     }
 
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
+        }
+    }
+
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
     }
+
+    androidResources {
+        noCompress += "tflite"
+    }
 }
 
 dependencies {
     implementation(libs.androidx.core.ktx)
+    implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.lifecycle.runtime.compose)
@@ -124,9 +146,11 @@ dependencies {
     // Coroutines
     implementation(libs.coroutines.android)
 
-    // ML Kit Text Recognition (OCR)
+    // ML Kit Text Recognition (OCR) + TensorFlow Lite classification
     implementation(libs.mlkit.text.recognition)
+    implementation(libs.mlkit.image.labeling)
     implementation(libs.coroutines.play.services)
+    implementation(libs.tflite.task.vision)
 
     // Testing
     testImplementation(libs.junit)

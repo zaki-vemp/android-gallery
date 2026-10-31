@@ -2,6 +2,7 @@ package com.gallery.android.ui.navigation
 
 import android.net.Uri
 import androidx.compose.animation.AnimatedContentTransitionScope
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -39,6 +40,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
+import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -50,6 +52,7 @@ import com.gallery.android.ui.components.GalleryMotion
 import com.gallery.android.ui.editor.ImageEditorScreen
 import com.gallery.android.ui.favorites.FavoritesScreen
 import com.gallery.android.ui.gallery.GalleryScreen
+import com.gallery.android.ui.gallery.GalleryViewModel
 import com.gallery.android.ui.safe.PrivateSafeScreen
 import com.gallery.android.ui.search.SearchScreen
 import com.gallery.android.ui.settings.SettingsScreen
@@ -76,20 +79,17 @@ fun GalleryNavHost(navController: NavHostController) {
         startDestination = "home",
         enterTransition = {
             fadeIn(tween(GalleryMotion.NavEnterMs)) +
-                slideInHorizontally(tween(GalleryMotion.NavEnterMs)) { it / 12 } +
-                scaleIn(initialScale = 0.98f, animationSpec = tween(GalleryMotion.NavEnterMs))
+                slideInHorizontally(tween(GalleryMotion.NavEnterMs)) { it / 18 }
         },
         exitTransition = {
-            fadeOut(tween(GalleryMotion.NavExitMs)) +
-                scaleOut(targetScale = 0.98f, animationSpec = tween(GalleryMotion.NavExitMs))
+            fadeOut(tween(GalleryMotion.NavExitMs))
         },
         popEnterTransition = {
-            fadeIn(tween(GalleryMotion.NavEnterMs)) +
-                scaleIn(initialScale = 0.98f, animationSpec = tween(GalleryMotion.NavEnterMs))
+            fadeIn(tween(GalleryMotion.NavEnterMs))
         },
         popExitTransition = {
             fadeOut(tween(GalleryMotion.NavExitMs)) +
-                slideOutHorizontally(tween(GalleryMotion.NavExitMs)) { it / 10 }
+                slideOutHorizontally(tween(GalleryMotion.NavExitMs)) { it / 16 }
         },
     ) {
         composable("home") {
@@ -115,12 +115,14 @@ fun GalleryNavHost(navController: NavHostController) {
             route = "viewer/{mediaId}",
             arguments = listOf(navArgument("mediaId") { type = NavType.LongType }),
             enterTransition = {
-                fadeIn(tween(220)) + scaleIn(initialScale = 0.94f, animationSpec = tween(280))
+                fadeIn(tween(GalleryMotion.NavEnterMs)) +
+                    scaleIn(initialScale = 0.985f, animationSpec = tween(GalleryMotion.NavEnterMs))
             },
-            exitTransition = { fadeOut(tween(180)) },
-            popEnterTransition = { fadeIn(tween(200)) },
+            exitTransition = { fadeOut(tween(GalleryMotion.NavExitMs)) },
+            popEnterTransition = { fadeIn(tween(GalleryMotion.NavEnterMs)) },
             popExitTransition = {
-                fadeOut(tween(220)) + scaleOut(targetScale = 0.94f, animationSpec = tween(260))
+                fadeOut(tween(GalleryMotion.NavExitMs)) +
+                    scaleOut(targetScale = 0.985f, animationSpec = tween(GalleryMotion.NavExitMs))
             },
         ) { backStackEntry ->
             val mediaId = backStackEntry.arguments?.getLong("mediaId") ?: 0L
@@ -208,12 +210,13 @@ fun HomePager(
 ) {
     val pagerState = rememberPagerState(pageCount = { homeTabs.size })
     val scope = rememberCoroutineScope()
+    val galleryViewModel: GalleryViewModel = hiltViewModel()
 
     Column(modifier = Modifier.fillMaxSize()) {
         HorizontalPager(
             state = pagerState,
             modifier = Modifier.weight(1f),
-            beyondViewportPageCount = 1,
+            beyondViewportPageCount = 0,
             key = { homeTabs[it].label },
         ) { page ->
             when (page) {
@@ -222,6 +225,7 @@ fun HomePager(
                     onFavoritesClick = onFavoritesClick,
                     onTrashClick = onTrashClick,
                     onSettingsClick = onSettingsClick,
+                    viewModel = galleryViewModel,
                 )
                 1 -> AlbumsScreen(
                     onAlbumClick = { album ->
@@ -230,7 +234,14 @@ fun HomePager(
                     },
                     onFavoritesClick = onFavoritesClick,
                     onTrashClick = onTrashClick,
-                    onSafeClick = { scope.launch { pagerState.animateScrollToPage(3) } },
+                    onSafeClick = {
+                        scope.launch {
+                            pagerState.animateScrollToPage(
+                                3,
+                                animationSpec = tween(420, easing = FastOutSlowInEasing),
+                            )
+                        }
+                    },
                     onCollageClick = onCollageClick,
                 )
                 2 -> SearchScreen(onMediaClick = onMediaClick)
@@ -239,7 +250,14 @@ fun HomePager(
         }
         ApertureBottomBar(
             pagerState = pagerState,
-            onSelect = { index -> scope.launch { pagerState.animateScrollToPage(index) } },
+            onSelect = { index ->
+                scope.launch {
+                    pagerState.animateScrollToPage(
+                        index,
+                        animationSpec = tween(420, easing = FastOutSlowInEasing),
+                    )
+                }
+            },
         )
     }
 }

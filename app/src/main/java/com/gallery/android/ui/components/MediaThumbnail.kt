@@ -40,8 +40,8 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import coil.request.CachePolicy
 import coil.request.ImageRequest
-import coil.request.videoFrameMillis
 import coil.size.Size
+import com.gallery.android.data.media.GridThumbnail
 import com.gallery.android.domain.model.MediaItem
 import com.gallery.android.domain.model.MediaType
 import com.gallery.android.utils.DateUtils
@@ -58,18 +58,19 @@ fun MediaThumbnail(
 ) {
     val selectionScale = animateSelectionScale(isSelected)
     val context = LocalContext.current
-    val thumbnailRequest = remember(media.uri, media.mediaType) {
+    val thumbnailRequest = remember(media.id, media.uri, media.mediaType) {
         ImageRequest.Builder(context)
-            .data(media.uri)
-            .apply {
-                if (media.mediaType == MediaType.VIDEO) {
-                    // Force Coil's video decoder to return a real poster frame. Without this,
-                    // some MediaStore providers only expose the container and render blank.
-                    videoFrameMillis(1_000)
-                }
-            }
-            .crossfade(180)
-            .size(Size(480, 480))
+            .data(
+                GridThumbnail(
+                    uri = media.uri,
+                    id = media.id,
+                    isVideo = media.mediaType == MediaType.VIDEO,
+                ),
+            )
+            .crossfade(false)
+            .size(Size(256, 256))
+            .memoryCacheKey("thumb-${media.id}")
+            .diskCacheKey("thumb-${media.id}")
             .memoryCachePolicy(CachePolicy.ENABLED)
             .diskCachePolicy(CachePolicy.ENABLED)
             .build()
@@ -78,10 +79,9 @@ fun MediaThumbnail(
     Box(
         modifier = modifier
             .aspectRatio(1f)
-            .scaleOnPress(0.95f)
             .graphicsLayer {
-                scaleX *= selectionScale
-                scaleY *= selectionScale
+                scaleX = selectionScale
+                scaleY = selectionScale
             }
             .background(MaterialTheme.colorScheme.surfaceVariant)
             .clip(RoundedCornerShape(cornerRadius.dp))
@@ -94,7 +94,6 @@ fun MediaThumbnail(
             modifier = Modifier.fillMaxSize(),
         )
 
-        // Subtle bottom scrim for video badge readability
         if (media.mediaType == MediaType.VIDEO) {
             Box(
                 modifier = Modifier
@@ -160,8 +159,7 @@ fun VideoDurationBadge(
     modifier: Modifier = Modifier,
 ) {
     Row(
-        modifier = modifier
-            .fillMaxWidth(),
+        modifier = modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween,
     ) {

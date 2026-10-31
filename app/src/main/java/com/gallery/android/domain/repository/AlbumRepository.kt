@@ -5,6 +5,7 @@ import kotlinx.coroutines.flow.Flow
 
 interface AlbumRepository {
     fun getAlbums(): Flow<List<Album>>
+    fun getUserCreatedAlbums(): Flow<List<Album>>
     suspend fun createAlbum(name: String): Long
     suspend fun deleteAlbum(albumId: Long)
     suspend fun renameAlbum(albumId: Long, newName: String)

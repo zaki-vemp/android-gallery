@@ -32,6 +32,7 @@ import javax.inject.Inject
 import coil.ImageLoader
 import coil.request.ImageRequest
 import coil.request.SuccessResult
+import com.gallery.android.nativeengine.NativeMediaEngine
 
 enum class CollageLayoutType {
     GRID_2_HORIZONTAL,
@@ -63,7 +64,7 @@ class CollageViewModel @Inject constructor(
 
     init {
         viewModelScope.launch {
-            getMediaUseCase.getAll().collect { media ->
+            getMediaUseCase.getRecent(160).collect { media ->
                 val imagesOnly = media.filter { it.mediaType == MediaType.IMAGE }
                 _uiState.update { state ->
                     state.copy(
@@ -132,6 +133,7 @@ class CollageViewModel @Inject constructor(
 
                 drawCollageLayout(
                     canvas = canvas,
+                    outputBitmap = outputBitmap,
                     bitmaps = loadedBitmaps.filterNotNull(),
                     layoutType = state.selectedLayout,
                     width = canvasSize,
@@ -156,6 +158,11 @@ class CollageViewModel @Inject constructor(
         }
     }
 
+    private fun ensureSoftware(bitmap: Bitmap): Bitmap {
+        return if (bitmap.config == Bitmap.Config.ARGB_8888) bitmap
+        else bitmap.copy(Bitmap.Config.ARGB_8888, false) ?: bitmap
+    }
+
     private fun drawableToBitmap(drawable: android.graphics.drawable.Drawable): Bitmap {
         val bitmap = Bitmap.createBitmap(
             drawable.intrinsicWidth.coerceAtLeast(100),
@@ -170,6 +177,7 @@ class CollageViewModel @Inject constructor(
 
     private fun drawCollageLayout(
         canvas: Canvas,
+        outputBitmap: Bitmap,
         bitmaps: List<Bitmap>,
         layoutType: CollageLayoutType,
         width: Int,
@@ -223,15 +231,25 @@ class CollageViewModel @Inject constructor(
         val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
         for (i in 0 until rects.size.coerceAtMost(count)) {
             val rect = rects[i]
-            val bmp = bitmaps[i]
-            canvas.save()
-            val path = android.graphics.Path().apply {
-                addRoundRect(rect, cornerRadiusPx, cornerRadiusPx, android.graphics.Path.Direction.CW)
+            val bmp = ensureSoftware(bitmaps[i])
+            val usedNative = NativeMediaEngine.isAvailable && NativeMediaEngine.blitCover(
+                bmp,
+                outputBitmap,
+                rect.left.toInt(),
+                rect.top.toInt(),
+                rect.right.toInt(),
+                rect.bottom.toInt(),
+            )
+            if (!usedNative) {
+                canvas.save()
+                val path = android.graphics.Path().apply {
+                    addRoundRect(rect, cornerRadiusPx, cornerRadiusPx, android.graphics.Path.Direction.CW)
+                }
+                canvas.clipPath(path)
+                val srcRect = android.graphics.Rect(0, 0, bmp.width, bmp.height)
+                canvas.drawBitmap(bmp, srcRect, rect, paint)
+                canvas.restore()
             }
-            canvas.clipPath(path)
-            val srcRect = android.graphics.Rect(0, 0, bmp.width, bmp.height)
-            canvas.drawBitmap(bmp, srcRect, rect, paint)
-            canvas.restore()
         }
     }
 

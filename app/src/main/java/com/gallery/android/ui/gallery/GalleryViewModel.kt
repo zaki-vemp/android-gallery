@@ -8,13 +8,19 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.paging.PagingData
 import androidx.paging.cachedIn
+import androidx.paging.insertSeparators
+import androidx.paging.map
 import com.gallery.android.domain.model.MediaItem
+import com.gallery.android.domain.model.MediaListQuery
+import com.gallery.android.domain.model.TimelineAnchor
 import com.gallery.android.domain.repository.AlbumRepository
 import com.gallery.android.domain.usecase.FavoriteMediaUseCase
 import com.gallery.android.domain.usecase.GetMediaUseCase
 import com.gallery.android.domain.usecase.MoveToTrashUseCase
 import com.gallery.android.domain.repository.MediaRepository
+import com.gallery.android.utils.DateUtils
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -28,32 +34,17 @@ enum class GalleryFilter(val label: String) {
     EDITED("Edited"),
     ALL("All");
 
-    fun matches(media: MediaItem): Boolean {
-        val searchText = listOf(
-            media.name,
-            media.path,
-            media.mimeType,
-            media.bucketName,
-        ).joinToString(" ").lowercase()
-
-        return when (this) {
-            PHOTO -> media.mediaType == com.gallery.android.domain.model.MediaType.IMAGE
-            VIDEOS -> media.mediaType == com.gallery.android.domain.model.MediaType.VIDEO
-            MOTION_PHOTO -> media.mediaType == com.gallery.android.domain.model.MediaType.IMAGE &&
-                ("motion" in searchText || "live photo" in searchText || "motionphoto" in searchText)
-            SCREENSHOTS_AND_RECORDINGS ->
-                "screenshot" in searchText ||
-                "screen_record" in searchText ||
-                "screenrecord" in searchText ||
-                "screen recording" in searchText
-            FAVOURITES -> media.isFavorite
-            EDITED ->
-                "edit" in searchText ||
-                "edited" in searchText ||
-                media.dateModified > media.dateAdded + 3600
-            ALL -> true
-        }
-    }
+    fun toQuery(bucketId: Long? = null, restrictToIds: List<Long>? = null): MediaListQuery =
+        MediaListQuery(
+            bucketId = bucketId,
+            restrictToIds = restrictToIds,
+            imagesOnly = this == PHOTO || this == MOTION_PHOTO || this == EDITED,
+            videosOnly = this == VIDEOS,
+            screenshotsOnly = this == SCREENSHOTS_AND_RECORDINGS,
+            favoritesOnly = this == FAVOURITES,
+            motionPhotoOnly = this == MOTION_PHOTO,
+            editedOnly = this == EDITED,
+        )
 }
 
 data class GalleryUiState(
@@ -61,9 +52,16 @@ data class GalleryUiState(
     val gridColumns: Int = 3,
     val selectedIds: Set<Long> = emptySet(),
     val activeFilter: GalleryFilter = GalleryFilter.ALL,
+    val mediaCount: Int = 0,
     val error: String? = null,
 )
 
+sealed interface GalleryGridItem {
+    data class Header(val date: String, val location: String) : GalleryGridItem
+    data class Media(val item: MediaItem) : GalleryGridItem
+}
+
+@OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class GalleryViewModel @Inject constructor(
     private val getMediaUseCase: GetMediaUseCase,
@@ -77,11 +75,45 @@ class GalleryViewModel @Inject constructor(
     private val _uiState = MutableStateFlow(GalleryUiState())
     val uiState: StateFlow<GalleryUiState> = _uiState.asStateFlow()
 
-    val mediaPaged: Flow<PagingData<MediaItem>> = getMediaUseCase()
+    private val source = MutableStateFlow<GallerySource>(GallerySource.All)
+    private val filter = MutableStateFlow(GalleryFilter.ALL)
+
+    private val query: Flow<MediaListQuery> = combine(source, filter) { src, activeFilter ->
+        src to activeFilter
+    }.flatMapLatest { (src, activeFilter) ->
+        when (src) {
+            is GallerySource.CustomAlbum -> albumRepository.getMediaForAlbum(src.albumId)
+                .map { ids -> activeFilter.toQuery(restrictToIds = ids) }
+            is GallerySource.Bucket -> flowOf(activeFilter.toQuery(bucketId = src.bucketId))
+            GallerySource.All -> flowOf(activeFilter.toQuery())
+        }
+    }.distinctUntilChanged()
+
+    val gridItems: Flow<PagingData<GalleryGridItem>> = query
+        .flatMapLatest { getMediaUseCase(it) }
+        .map { pagingData ->
+            pagingData
+                .map { GalleryGridItem.Media(it) as GalleryGridItem }
+                .insertSeparators { before, after ->
+                    val afterMedia = (after as? GalleryGridItem.Media)?.item ?: return@insertSeparators null
+                    val beforeMedia = (before as? GalleryGridItem.Media)?.item
+                    val afterLabel = DateUtils.formatGroupDate(afterMedia.dateAdded)
+                    val beforeLabel = beforeMedia?.let { DateUtils.formatGroupDate(it.dateAdded) }
+                    if (beforeLabel != afterLabel) {
+                        GalleryGridItem.Header(
+                            date = afterLabel,
+                            location = afterMedia.bucketName,
+                        )
+                    } else {
+                        null
+                    }
+                }
+        }
         .cachedIn(viewModelScope)
 
-    val allMedia: StateFlow<List<MediaItem>> = getMediaUseCase.getAll()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    val timelineAnchors: StateFlow<List<TimelineAnchor>> = query
+        .flatMapLatest { getMediaUseCase.observeTimeline(it) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     private val GRID_COLUMNS_KEY = intPreferencesKey("grid_columns")
 
@@ -90,33 +122,22 @@ class GalleryViewModel @Inject constructor(
             dataStore.data.map { prefs -> prefs[GRID_COLUMNS_KEY] ?: 3 }
                 .collect { columns -> _uiState.update { it.copy(gridColumns = columns) } }
         }
-        syncMedia()
-    }
-
-    fun syncMedia() {
         viewModelScope.launch {
-            _uiState.update { it.copy(isLoading = true) }
-            try {
-                mediaRepository.syncMediaStore()
-            } catch (e: Exception) {
-                _uiState.update { it.copy(error = e.message) }
-            } finally {
-                _uiState.update { it.copy(isLoading = false) }
-            }
+            query.flatMapLatest { getMediaUseCase.observeCount(it) }
+                .collect { count -> _uiState.update { it.copy(mediaCount = count) } }
+        }
+        viewModelScope.launch {
+            runCatching { mediaRepository.syncMediaStore() }
         }
     }
 
-    fun getMediaByBucket(bucketId: Long): Flow<List<MediaItem>> =
-        getMediaUseCase.getByBucket(bucketId)
-
-    fun getMediaByCustomAlbum(albumId: Long): Flow<List<MediaItem>> =
-        combine(
-            mediaRepository.getAllMedia(),
-            albumRepository.getMediaForAlbum(albumId),
-        ) { mediaList, mediaIds ->
-            val ids = mediaIds.toSet()
-            mediaList.filter { it.id in ids }
+    fun setSource(bucketId: Long?, customAlbumId: Long?) {
+        source.value = when {
+            customAlbumId != null -> GallerySource.CustomAlbum(customAlbumId)
+            bucketId != null -> GallerySource.Bucket(bucketId)
+            else -> GallerySource.All
         }
+    }
 
     fun toggleSelection(mediaId: Long) {
         _uiState.update { state ->
@@ -151,7 +172,14 @@ class GalleryViewModel @Inject constructor(
         }
     }
 
-    fun setFilter(filter: GalleryFilter) {
-        _uiState.update { it.copy(activeFilter = filter) }
+    fun setFilter(next: GalleryFilter) {
+        filter.value = next
+        _uiState.update { it.copy(activeFilter = next) }
+    }
+
+    private sealed interface GallerySource {
+        data object All : GallerySource
+        data class Bucket(val bucketId: Long) : GallerySource
+        data class CustomAlbum(val albumId: Long) : GallerySource
     }
 }

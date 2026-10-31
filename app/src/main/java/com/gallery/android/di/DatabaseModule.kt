@@ -22,7 +22,11 @@ object DatabaseModule {
     @Singleton
     fun provideDatabase(@ApplicationContext context: Context): GalleryDatabase =
         Room.databaseBuilder(context, GalleryDatabase::class.java, "gallery.db")
-            .addMigrations(GalleryDatabase.MIGRATION_1_2)
+            .addMigrations(
+                GalleryDatabase.MIGRATION_1_2,
+                GalleryDatabase.MIGRATION_2_3,
+                GalleryDatabase.MIGRATION_3_4,
+            )
             .fallbackToDestructiveMigration()
             .build()
 

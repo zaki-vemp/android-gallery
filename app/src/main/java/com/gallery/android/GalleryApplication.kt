@@ -6,6 +6,10 @@ import androidx.work.*
 import coil.ImageLoader
 import coil.ImageLoaderFactory
 import coil.decode.VideoFrameDecoder
+import coil.disk.DiskCache
+import coil.memory.MemoryCache
+import com.gallery.android.data.media.GridThumbnailFetcher
+import com.gallery.android.worker.OcrScanWorker
 import com.gallery.android.worker.TrashCleanupWorker
 import dagger.hilt.android.HiltAndroidApp
 import java.util.concurrent.TimeUnit
@@ -24,16 +28,29 @@ class GalleryApplication : Application(), Configuration.Provider, ImageLoaderFac
 
     override fun newImageLoader(): ImageLoader = ImageLoader.Builder(this)
         .components {
-            // Register explicitly so content:// MediaStore videos always resolve to a frame,
-            // including on providers that don't expose a useful file extension.
+            add(GridThumbnailFetcher.Factory())
             add(VideoFrameDecoder.Factory())
         }
-        .crossfade(true)
+        .memoryCache {
+            MemoryCache.Builder(this)
+                .maxSizePercent(0.25)
+                .build()
+        }
+        .diskCache {
+            DiskCache.Builder()
+                .directory(cacheDir.resolve("image_cache"))
+                .maxSizeBytes(512L * 1024 * 1024)
+                .build()
+        }
+        .crossfade(false)
+        .respectCacheHeaders(false)
+        .allowHardware(true)
         .build()
 
     override fun onCreate() {
         super.onCreate()
         scheduleTrashCleanup()
+        OcrScanWorker.enqueue(this)
     }
 
     private fun scheduleTrashCleanup() {

@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -90,10 +91,12 @@ import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.paging.LoadState
+import androidx.paging.compose.collectAsLazyPagingItems
+import com.gallery.android.domain.model.TimelineAnchor
 import com.gallery.android.ui.components.GalleryEmptyState
 import com.gallery.android.ui.components.GalleryMotion
 import com.gallery.android.ui.components.MediaThumbnail
-import com.gallery.android.utils.DateUtils
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.util.Locale
@@ -115,47 +118,22 @@ fun GalleryScreen(
     var showOverflowMenu by remember { mutableStateOf(false) }
     val gridState = rememberLazyGridState()
     val coroutineScope = rememberCoroutineScope()
+    val lazyItems = viewModel.gridItems.collectAsLazyPagingItems()
+    val timelineAnchors by viewModel.timelineAnchors.collectAsStateWithLifecycle()
 
-    val mediaList by if (customAlbumId != null) {
-        viewModel.getMediaByCustomAlbum(customAlbumId).collectAsStateWithLifecycle(emptyList())
-    } else if (bucketId != null) {
-        viewModel.getMediaByBucket(bucketId).collectAsStateWithLifecycle(emptyList())
-    } else {
-        viewModel.allMedia.collectAsStateWithLifecycle()
-    }
-
-    val filteredMedia = remember(mediaList, uiState.activeFilter) {
-        mediaList.filter { uiState.activeFilter.matches(it) }
-    }
-
-    val groupedEntries = remember(filteredMedia) {
-        filteredMedia.groupBy { DateUtils.formatGroupDate(it.dateAdded) }.map { (dateLabel, items) ->
-            val location = items
-                .groupingBy { it.bucketName.ifBlank { it.path.substringBeforeLast('/').substringAfterLast('/') } }
-                .eachCount()
-                .maxByOrNull { it.value }
-                ?.key
-                .orEmpty()
-            Triple(dateLabel, location, items)
-        }
-    }
-
-    val timelineSections = remember(groupedEntries) {
-        var runningIndex = 0
-        groupedEntries.map { (dateLabel, _, items) ->
-            TimelineSection(label = dateLabel, itemIndex = runningIndex).also {
-                runningIndex += 1 + items.size
-            }
-        }
+    LaunchedEffect(bucketId, customAlbumId) {
+        viewModel.setSource(bucketId, customAlbumId)
     }
 
     val isSelecting = uiState.selectedIds.isNotEmpty()
     val activeTimelineIndex by remember {
         derivedStateOf {
-            timelineSections.indexOfLast { it.itemIndex <= gridState.firstVisibleItemIndex }
+            timelineAnchors.indexOfLast { it.itemIndex <= gridState.firstVisibleItemIndex }
                 .coerceAtLeast(0)
         }
     }
+    val isEmpty = lazyItems.itemCount == 0 &&
+        lazyItems.loadState.refresh is LoadState.NotLoading
 
     Scaffold(
         topBar = {
@@ -177,7 +155,7 @@ fun GalleryScreen(
                     Box {
                         com.gallery.android.ui.components.ApertureHeader(
                             title = if (bucketId != null || customAlbumId != null) "Album" else "Photos",
-                            subtitle = "${String.format(Locale.getDefault(), "%,d", filteredMedia.size)} items · ${DateUtils.formatFileSize(filteredMedia.sumOf { it.size })}",
+                            subtitle = "${String.format(Locale.getDefault(), "%,d", uiState.mediaCount)} items",
                             actions = {
                                 com.gallery.android.ui.components.HairlineChip(
                                     onClick = {
@@ -251,7 +229,7 @@ fun GalleryScreen(
             }
         },
     ) { padding ->
-        if (filteredMedia.isEmpty()) {
+        if (isEmpty) {
             GalleryEmptyState(
                 icon = Icons.Default.Photo,
                 title = if (uiState.activeFilter == GalleryFilter.ALL) {
@@ -294,53 +272,66 @@ fun GalleryScreen(
                     horizontalArrangement = Arrangement.spacedBy(3.dp),
                     verticalArrangement = Arrangement.spacedBy(3.dp),
                 ) {
-                    groupedEntries.forEach { (dateLabel, location, items) ->
-                        item(
-                            key = "header-$dateLabel",
-                            span = { GridItemSpan(maxLineSpan) },
-                        ) {
-                            DateHeader(
-                                date = dateLabel,
-                                location = location,
-                                count = items.size,
-                                modifier = Modifier.animateItem(
-                                    fadeInSpec = GalleryMotion.Medium,
-                                    placementSpec = GalleryMotion.Placement,
-                                    fadeOutSpec = GalleryMotion.Fast,
-                                ),
+                    items(
+                        count = lazyItems.itemCount,
+                        key = { index ->
+                            when (val item = lazyItems.peek(index)) {
+                                is GalleryGridItem.Header -> "header-${item.date}-$index"
+                                is GalleryGridItem.Media -> item.item.id
+                                null -> "placeholder-$index"
+                            }
+                        },
+                        span = { index ->
+                            if (lazyItems.peek(index) is GalleryGridItem.Header) {
+                                GridItemSpan(maxLineSpan)
+                            } else {
+                                GridItemSpan(1)
+                            }
+                        },
+                        contentType = { index ->
+                            when (lazyItems.peek(index)) {
+                                is GalleryGridItem.Header -> "header"
+                                is GalleryGridItem.Media -> "media"
+                                else -> "placeholder"
+                            }
+                        },
+                    ) { index ->
+                        when (val item = lazyItems[index]) {
+                            is GalleryGridItem.Header -> DateHeader(
+                                date = item.date,
+                                location = item.location,
+                                count = 0,
                             )
-                        }
-                        items(
-                            items = items,
-                            key = { it.id },
-                        ) { media ->
-                            MediaThumbnail(
-                                media = media,
-                                isSelected = uiState.selectedIds.contains(media.id),
-                                onClick = {
-                                    if (isSelecting) viewModel.toggleSelection(media.id)
-                                    else onMediaClick(media.id)
-                                },
-                                onLongClick = { viewModel.toggleSelection(media.id) },
-                                cornerRadius = 8,
-                                modifier = Modifier.animateItem(
-                                    fadeInSpec = GalleryMotion.Medium,
-                                    placementSpec = GalleryMotion.Placement,
-                                    fadeOutSpec = GalleryMotion.Fast,
-                                ),
+                            is GalleryGridItem.Media -> {
+                                val media = item.item
+                                MediaThumbnail(
+                                    media = media,
+                                    isSelected = uiState.selectedIds.contains(media.id),
+                                    onClick = {
+                                        if (isSelecting) viewModel.toggleSelection(media.id)
+                                        else onMediaClick(media.id)
+                                    },
+                                    onLongClick = { viewModel.toggleSelection(media.id) },
+                                    cornerRadius = 8,
+                                )
+                            }
+                            null -> Box(
+                                modifier = Modifier
+                                    .aspectRatio(1f)
+                                    .background(MaterialTheme.colorScheme.surfaceVariant),
                             )
                         }
                     }
                 }
 
-                if (timelineSections.size > 1) {
+                if (timelineAnchors.size > 1) {
                     DateTimelineScrubber(
-                        sections = timelineSections,
+                        sections = timelineAnchors,
                         activeIndex = activeTimelineIndex,
                         isGridScrolling = gridState.isScrollInProgress,
                         modifier = Modifier.align(Alignment.CenterEnd),
                         onScrubTo = { sectionIndex, animated ->
-                            val target = timelineSections.getOrNull(sectionIndex)?.itemIndex ?: return@DateTimelineScrubber
+                            val target = timelineAnchors.getOrNull(sectionIndex)?.itemIndex ?: return@DateTimelineScrubber
                             coroutineScope.launch {
                                 if (animated) {
                                     gridState.animateScrollToItem(target)
@@ -367,10 +358,6 @@ fun GalleryScreen(
     }
 }
 
-private data class TimelineSection(
-    val label: String,
-    val itemIndex: Int,
-)
 
 @Composable
 private fun DateHeader(date: String, location: String, count: Int, modifier: Modifier = Modifier) {
@@ -403,18 +390,20 @@ private fun DateHeader(date: String, location: String, count: Int, modifier: Mod
                 )
             }
         }
-        Text(
-            text = "$count ITEMS",
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            letterSpacing = 0.12.em,
-        )
+        if (count > 0) {
+            Text(
+                text = "$count ITEMS",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                letterSpacing = 0.12.em,
+            )
+        }
     }
 }
 
 @Composable
 private fun DateTimelineScrubber(
-    sections: List<TimelineSection>,
+    sections: List<TimelineAnchor>,
     activeIndex: Int,
     isGridScrolling: Boolean,
     modifier: Modifier = Modifier,
