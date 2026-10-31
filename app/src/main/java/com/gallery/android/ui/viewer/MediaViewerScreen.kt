@@ -1,5 +1,7 @@
 package com.gallery.android.ui.viewer
 
+import android.app.Activity
+import android.app.PictureInPictureParams
 import android.content.ContentValues
 import android.content.Intent
 import android.graphics.Bitmap
@@ -10,6 +12,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
+import android.util.Rational
 import androidx.compose.animation.*
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateDpAsState
@@ -18,6 +21,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
@@ -27,6 +31,9 @@ import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.VolumeOff
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -39,6 +46,8 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.input.pointer.util.addPointerInputChange
@@ -54,19 +63,28 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.round
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.media3.common.MediaItem as Media3Item
+import androidx.media3.common.PlaybackException
+import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
 import coil.compose.AsyncImage
 import coil.request.CachePolicy
 import coil.request.ImageRequest
+import coil.request.videoFrameMillis
 import com.gallery.android.domain.model.Album
 import com.gallery.android.domain.model.MediaItem
 import com.gallery.android.domain.model.MediaType
+import com.gallery.android.ui.components.CornerBrackets
 import com.gallery.android.utils.DateUtils
+import com.gallery.android.utils.ExifUtils
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -78,6 +96,7 @@ import me.saket.telephoto.zoomable.rememberZoomableImageState
 import me.saket.telephoto.zoomable.rememberZoomableState
 import kotlin.math.abs
 import kotlin.math.roundToInt
+import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -92,40 +111,34 @@ fun MediaViewerScreen(
     val showOcrPanel = uiState.showOcrPanel
     var showControls by remember { mutableStateOf(true) }
     val context = LocalContext.current
+    val isDarkViewer = MaterialTheme.colorScheme.background.luminance() < 0.5f
+    val viewerBackground = if (isDarkViewer) Color(0xFF0A0B0C) else Color(0xFFFBFBFB)
+    val viewerText = if (isDarkViewer) Color(0xFFF3F4F5) else Color(0xFF1D1F20)
+    val viewerDim = if (isDarkViewer) Color(0xFF8D949C) else Color(0xFF6C7278)
+    val viewerLine = if (isDarkViewer) Color.White.copy(alpha = 0.12f) else Color(0xFF1D1F20).copy(alpha = 0.14f)
     val snackbarHostState = remember { SnackbarHostState() }
     val coroutineScope = rememberCoroutineScope()
     var canDismissBySwipe by remember { mutableStateOf(true) }
     var showActionsMenu by remember { mutableStateOf(false) }
     var albumAction by remember { mutableStateOf<AlbumMenuAction?>(null) }
     var showRenameDialog by remember { mutableStateOf(false) }
-    val density = LocalDensity.current
-    
-    // Swipe-to-dismiss state
-    var verticalDragOffset by remember { mutableFloatStateOf(0f) }
-    var isDraggingVertically by remember { mutableStateOf(false) }
-//    val dismissThreshold = with(density) { 200.dp.toPx() }
-    val velocityTracker = remember { VelocityTracker() }
 
-    // Swipe-down-to-dismiss state
+    // Single swipe-down-to-dismiss path
     var dragOffsetY by remember { mutableFloatStateOf(0f) }
-    val dismissThreshold = with(LocalDensity.current) { 150.dp.toPx() }
+    val dismissThreshold = with(LocalDensity.current) { 140.dp.toPx() }
     var isDismissing by remember { mutableStateOf(false) }
     var isSnappingBack by remember { mutableStateOf(false) }
     val animatedOffsetY = remember { Animatable(0f) }
 
-    // Use animated value when snapping back, raw drag value otherwise
     val currentOffsetY = if (isSnappingBack) animatedOffsetY.value else dragOffsetY
-
-    // Fraction of dismiss progress (0 = normal, 1 = fully dismissed)
     val dismissProgress = (abs(currentOffsetY) / dismissThreshold).coerceIn(0f, 1f)
-    val bgAlpha = 1f - dismissProgress * 0.6f
-    val contentScale = 1f - dismissProgress * 0.15f
+    val backgroundAlpha = 1f - dismissProgress * 0.55f
+    val contentScale = 1f - dismissProgress * 0.12f
 
-    // Snap-back animation
     LaunchedEffect(isSnappingBack) {
         if (isSnappingBack) {
             animatedOffsetY.snapTo(dragOffsetY)
-            animatedOffsetY.animateTo(0f, tween(250))
+            animatedOffsetY.animateTo(0f, tween(220))
             dragOffsetY = 0f
             isSnappingBack = false
         }
@@ -136,11 +149,6 @@ fun MediaViewerScreen(
         pageCount = { uiState.mediaList.size },
     )
     val previewListState = rememberLazyListState()
-    val videoBottomInset by animateDpAsState(
-        targetValue = if (showControls) 116.dp else 0.dp,
-        animationSpec = tween(180),
-        label = "videoBottomInset",
-    )
 
     // Scroll to the clicked image once the list is loaded
     LaunchedEffect(initialMediaId, uiState.mediaList) {
@@ -153,70 +161,24 @@ fun MediaViewerScreen(
     }
 
     // Sync pager position back to ViewModel
-    LaunchedEffect(pagerState.currentPage, uiState.mediaList) {
+    LaunchedEffect(pagerState.settledPage, uiState.mediaList) {
         if (uiState.mediaList.isNotEmpty()) {
-            viewModel.setCurrentIndex(pagerState.currentPage)
+            viewModel.setCurrentIndex(pagerState.settledPage)
             canDismissBySwipe = true
         }
     }
 
-    LaunchedEffect(pagerState.currentPage, uiState.mediaList.size) {
+    LaunchedEffect(pagerState.settledPage, uiState.mediaList.size) {
         if (uiState.mediaList.isNotEmpty()) {
-            val targetIndex = (pagerState.currentPage - 1).coerceAtLeast(0)
+            val targetIndex = (pagerState.settledPage - 1).coerceAtLeast(0)
             previewListState.animateScrollToItem(targetIndex)
         }
     }
 
-    // Animate the drag offset for smooth transitions
-    val animatedDragOffset by animateFloatAsState(
-        targetValue = verticalDragOffset,
-        animationSpec = tween(100),
-        label = "dragOffset"
-    )
-    
-    // Calculate opacity based on drag distance
-    val dragProgress = kotlin.math.abs(verticalDragOffset) / dismissThreshold
-    val backgroundAlpha = (1f - dragProgress.coerceIn(0f, 1f))
-
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.Black.copy(alpha = backgroundAlpha))
-            .pointerInput(Unit) {
-                detectVerticalDragGestures(
-                    onDragStart = { 
-                        isDraggingVertically = true
-                        velocityTracker.resetTracking()
-                    },
-                    onDragEnd = {
-                        isDraggingVertically = false
-                        val velocity = velocityTracker.calculateVelocity().y
-                        // Dismiss if dragged beyond threshold or with enough velocity
-                        if (kotlin.math.abs(verticalDragOffset) > dismissThreshold || 
-                            kotlin.math.abs(velocity) > 1000f) {
-                            onBack()
-                        } else {
-                            // Reset position with animation
-                            verticalDragOffset = 0f
-                        }
-                        velocityTracker.resetTracking()
-                    },
-                    onDragCancel = {
-                        isDraggingVertically = false
-                        verticalDragOffset = 0f
-                        velocityTracker.resetTracking()
-                    },
-                    onVerticalDrag = { change, dragAmount ->
-                        velocityTracker.addPointerInputChange(change)
-                        verticalDragOffset += dragAmount
-                        change.consume()
-                    }
-                )
-            }
-            .graphicsLayer {
-                translationY = animatedDragOffset
-                alpha = backgroundAlpha
-            }
+            .background(viewerBackground.copy(alpha = backgroundAlpha)),
     ) {
         val currentMedia = viewModel.currentMedia()
 
@@ -238,7 +200,9 @@ fun MediaViewerScreen(
                                 detectVerticalDragGestures(
                                     onVerticalDrag = { change, dragAmount ->
                                         change.consume()
-                                        dragOffsetY += dragAmount
+                                            // Viewer dismissal is a downward gesture. Upward drags
+                                            // stay with the pager instead of unexpectedly closing it.
+                                            dragOffsetY = (dragOffsetY + dragAmount).coerceAtLeast(0f)
                                         if (abs(dragOffsetY) > 10f) {
                                             showControls = false
                                         }
@@ -267,11 +231,21 @@ fun MediaViewerScreen(
                 val media = uiState.mediaList[page]
                 MediaPage(
                     media = media,
-                    isCurrentPage = page == pagerState.currentPage,
+                    // Adjacent pages remain composed by the pager. Treat no page as active
+                    // while a swipe is in flight so an outgoing video is stopped immediately.
+                    isCurrentPage = page == pagerState.settledPage && !pagerState.isScrollInProgress,
                     onTap = { showControls = !showControls },
                     onZoomStateChanged = { isZoomed -> canDismissBySwipe = !isZoomed },
-                    bottomInset = videoBottomInset,
+                    bottomInset = 0.dp,
                     showControls = showControls,
+                    onPrevious = {
+                        if (page > 0) coroutineScope.launch { pagerState.animateScrollToPage(page - 1) }
+                    },
+                    onNext = {
+                        if (page < uiState.mediaList.lastIndex) {
+                            coroutineScope.launch { pagerState.animateScrollToPage(page + 1) }
+                        }
+                    },
                 )
             }
         }
@@ -283,60 +257,41 @@ fun MediaViewerScreen(
             exit = fadeOut() + slideOutVertically(targetOffsetY = { -it }),
             modifier = Modifier.align(Alignment.TopCenter),
         ) {
-            Box(modifier = Modifier.fillMaxWidth()) {
-                val headerMedia = currentMedia
-                if (headerMedia?.mediaType == MediaType.IMAGE) {
-                    AsyncImage(
-                        model = ImageRequest.Builder(LocalContext.current)
-                            .data(headerMedia.uri)
-                            .memoryCachePolicy(CachePolicy.ENABLED)
-                            .build(),
-                        contentDescription = null,
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(94.dp)
-                            .blur(20.dp),
-                    )
-                }
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(94.dp)
-                        .background(
-                            Brush.verticalGradient(
-                                colors = listOf(
-                                    Color.Black.copy(alpha = 0.78f),
-                                    Color.Black.copy(alpha = 0.52f),
-                                    Color.Transparent,
-                                ),
-                            ),
-                        ),
-                )
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                color = viewerBackground.copy(alpha = 0.94f),
+                shadowElevation = 0.dp,
+            ) {
                 TopAppBar(
-                    modifier = Modifier.height(72.dp),
-                    windowInsets = WindowInsets(0.dp),
+                    windowInsets = WindowInsets.statusBars,
                     title = {
                         currentMedia?.let { media ->
                             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                                 Text(
-                                    text = DateUtils.formatViewerHeaderDate(media.dateAdded),
+                                    text = if (media.mediaType == MediaType.VIDEO) media.name.uppercase(Locale.getDefault()) else "ALL PHOTOS",
                                     style = MaterialTheme.typography.titleSmall,
-                                    color = Color.White,
+                                    color = viewerText,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
                                 )
                                 Text(
-                                    text = DateUtils.formatViewerHeaderTime(media.dateAdded),
+                                    text = if (media.mediaType == MediaType.VIDEO) {
+                                        buildString {
+                                            if (media.width > 0 && media.height > 0) append("${media.width}×${media.height} · ")
+                                            append(DateUtils.formatDuration(media.duration))
+                                        }
+                                    } else {
+                                        "${DateUtils.formatViewerHeaderDate(media.dateAdded)} · ${DateUtils.formatViewerHeaderTime(media.dateAdded)}"
+                                    },
                                     style = MaterialTheme.typography.labelSmall,
-                                    color = Color.White.copy(alpha = 0.86f),
+                                    color = viewerDim,
                                 )
                             }
                         }
                     },
                     navigationIcon = {
                         IconButton(onClick = onBack) {
-                            Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = Color.White)
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = viewerText)
                         }
                     },
                     actions = {
@@ -345,7 +300,7 @@ fun MediaViewerScreen(
                             Icon(
                                 if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
                                 contentDescription = "Favorite",
-                                tint = if (isFavorite) Color(0xFFFF4081) else Color.White,
+                                tint = if (isFavorite) MaterialTheme.colorScheme.primary else viewerText,
                             )
                         }
                         if (viewModel.currentMedia()?.mediaType == MediaType.IMAGE) {
@@ -353,16 +308,16 @@ fun MediaViewerScreen(
                                 Icon(
                                     Icons.Default.TextFields,
                                     contentDescription = "Read text",
-                                    tint = if (showOcrPanel) MaterialTheme.colorScheme.primary else Color.White,
+                                    tint = if (showOcrPanel) MaterialTheme.colorScheme.primary else viewerText,
                                 )
                             }
                         }
                         IconButton(onClick = viewModel::toggleInfo) {
-                            Icon(Icons.Default.Info, contentDescription = "Info", tint = Color.White)
+                            Icon(Icons.Default.Info, contentDescription = "Info", tint = viewerText)
                         }
                         Box {
                             IconButton(onClick = { showActionsMenu = true }) {
-                                Icon(Icons.Default.MoreVert, contentDescription = "More actions", tint = Color.White)
+                                Icon(Icons.Default.MoreVert, contentDescription = "More actions", tint = viewerText)
                             }
                             DropdownMenu(
                                 expanded = showActionsMenu,
@@ -441,7 +396,7 @@ fun MediaViewerScreen(
                                             coroutineScope.launch {
                                                 snackbarHostState.showSnackbar("Contact avatar is available for images only")
                                             }
-                                        } else if (media != null) {
+                                        } else {
                                             setAsContactAvatar(context, media)
                                         }
                                     },
@@ -492,7 +447,7 @@ fun MediaViewerScreen(
 
         // Bottom controls
         AnimatedVisibility(
-            visible = showControls,
+            visible = showControls && currentMedia?.mediaType == MediaType.IMAGE,
             enter = fadeIn() + slideInVertically(initialOffsetY = { it }),
             exit = fadeOut() + slideOutVertically(targetOffsetY = { it }),
             modifier = Modifier.align(Alignment.BottomCenter),
@@ -500,49 +455,51 @@ fun MediaViewerScreen(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(
-                        Brush.verticalGradient(
-                            colors = listOf(
-                                Color.Transparent,
-                                Color.Black.copy(alpha = 0.46f),
-                                Color.Black.copy(alpha = 0.76f),
-                            ),
-                        ),
-                    )
-                    .padding(horizontal = 12.dp, vertical = 8.dp)
+                    .background(viewerBackground.copy(alpha = 0.97f))
                     .navigationBarsPadding(),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
+                HorizontalDivider(color = viewerLine)
                 if (uiState.mediaList.isNotEmpty()) {
                     LazyRow(
                         state = previewListState,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        contentPadding = PaddingValues(horizontal = 2.dp),
-                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(5.dp),
+                        contentPadding = PaddingValues(horizontal = 10.dp),
+                        modifier = Modifier.fillMaxWidth().padding(top = 5.dp),
                     ) {
                         itemsIndexed(
                             items = uiState.mediaList,
                             key = { _, media -> media.id },
                         ) { index, media ->
-                            val isSelected = index == pagerState.currentPage
+                            val isSelected = index == pagerState.settledPage
+                            val thumbnailWidth by animateDpAsState(
+                                targetValue = if (isSelected) 52.dp else 38.dp,
+                                animationSpec = tween(200),
+                                label = "viewerThumbnailWidth",
+                            )
                             AsyncImage(
                                 model = ImageRequest.Builder(LocalContext.current)
                                     .data(media.uri)
+                                    .apply {
+                                        if (media.mediaType == MediaType.VIDEO) {
+                                            videoFrameMillis(1_000)
+                                        }
+                                    }
                                     .crossfade(120)
                                     .memoryCachePolicy(CachePolicy.ENABLED)
                                     .build(),
                                 contentDescription = media.name,
                                 contentScale = ContentScale.Crop,
                                 modifier = Modifier
-                                    .size(width = 44.dp, height = 56.dp)
+                                    .size(width = thumbnailWidth, height = 46.dp)
+                                    .clip(RoundedCornerShape(6.dp))
                                     .border(
                                         width = if (isSelected) 2.dp else 1.dp,
-                                        color = if (isSelected) Color.White else Color.White.copy(alpha = 0.28f),
-                                        shape = RoundedCornerShape(10.dp),
+                                        color = if (isSelected) MaterialTheme.colorScheme.primary else viewerLine,
+                                        shape = RoundedCornerShape(6.dp),
                                     )
-                                    .padding(1.dp)
-                                    .clip(RoundedCornerShape(9.dp))
-                                    .background(Color.White.copy(alpha = 0.08f))
+                                    .graphicsLayer { alpha = if (isSelected) 1f else 0.56f }
+                                    .background(viewerLine)
                                     .pointerInput(index) {
                                         detectTapGestures {
                                             coroutineScope.launch {
@@ -555,49 +512,61 @@ fun MediaViewerScreen(
                     }
                 }
 
-                val media = viewModel.currentMedia()
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .background(Color.Black.copy(alpha = 0.34f), RoundedCornerShape(20.dp))
-                        .padding(horizontal = 10.dp, vertical = 2.dp),
-                    horizontalArrangement = Arrangement.SpaceEvenly,
+                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(2.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    IconButton(onClick = {
-                        media?.let { m ->
+                    ViewerAction(
+                        icon = Icons.Default.Share,
+                        label = "Share",
+                        color = viewerText,
+                        onClick = {
+                            currentMedia?.let { m ->
                             val intent = Intent(Intent.ACTION_SEND).apply {
                                 type = m.mimeType
                                 putExtra(Intent.EXTRA_STREAM, m.uri)
                                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                             }
                             context.startActivity(Intent.createChooser(intent, "Share"))
+                            }
                         }
-                    }) {
-                        Icon(Icons.Default.Share, contentDescription = "Share", tint = Color.White)
-                    }
-                    IconButton(onClick = {
-                        viewModel.moveToTrash(onDone = onBack)
-                    }) {
-                        Icon(Icons.Default.Delete, contentDescription = "Delete", tint = Color.White)
-                    }
-                    if (onEditImage != null && media?.mediaType == com.gallery.android.domain.model.MediaType.IMAGE) {
-                        IconButton(onClick = { onEditImage(media.uri) }) {
-                            Icon(Icons.Default.Edit, contentDescription = "Edit", tint = Color.White)
-                        }
-                    }
-                    IconButton(onClick = {
-                        media?.let { m ->
+                    )
+                    ViewerAction(
+                        icon = if (currentMedia?.isFavorite == true) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                        label = "Favourite",
+                        color = if (currentMedia?.isFavorite == true) MaterialTheme.colorScheme.primary else viewerText,
+                        onClick = viewModel::toggleFavorite,
+                    )
+                    ViewerAction(
+                        icon = Icons.Default.Edit,
+                        label = "Edit",
+                        color = if (onEditImage != null) viewerText else viewerDim,
+                        onClick = { currentMedia?.let { media -> onEditImage?.invoke(media.uri) } },
+                    )
+                    ViewerAction(
+                        icon = Icons.Default.Wallpaper,
+                        label = "Wallpaper",
+                        color = viewerText,
+                        onClick = {
+                            currentMedia?.let { m ->
                             val wallpaperIntent = Intent(Intent.ACTION_ATTACH_DATA).apply {
                                 setDataAndType(m.uri, m.mimeType)
                                 putExtra("mimeType", m.mimeType)
                                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                             }
                             context.startActivity(Intent.createChooser(wallpaperIntent, "Set as wallpaper"))
+                            }
                         }
-                    }) {
-                        Icon(Icons.Default.Wallpaper, contentDescription = "Set wallpaper", tint = Color.White)
-                    }
+                    )
+                    ViewerAction(
+                        icon = Icons.Default.Delete,
+                        label = "Delete",
+                        color = viewerText,
+                        onClick = { viewModel.moveToTrash(onDone = onBack) },
+                    )
                 }
             }
         }
@@ -682,6 +651,33 @@ fun MediaViewerScreen(
 }
 
 @Composable
+private fun RowScope.ViewerAction(
+    icon: ImageVector,
+    label: String,
+    color: Color,
+    onClick: () -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .weight(1f)
+            .clickable(onClick = onClick)
+            .padding(vertical = 6.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(5.dp),
+    ) {
+        Icon(icon, contentDescription = label, tint = color, modifier = Modifier.size(19.dp))
+        Text(
+            text = label.uppercase(Locale.getDefault()),
+            color = color,
+            style = MaterialTheme.typography.labelSmall,
+            fontSize = 10.sp,
+            letterSpacing = androidx.compose.ui.unit.TextUnit(0.08f, androidx.compose.ui.unit.TextUnitType.Em),
+            maxLines = 1,
+        )
+    }
+}
+
+@Composable
 private fun MediaPage(
     media: MediaItem,
     isCurrentPage: Boolean,
@@ -689,6 +685,8 @@ private fun MediaPage(
     onZoomStateChanged: (Boolean) -> Unit,
     bottomInset: Dp,
     showControls: Boolean,
+    onPrevious: () -> Unit,
+    onNext: () -> Unit,
 ) {
     if (media.mediaType == MediaType.VIDEO) {
         LaunchedEffect(isCurrentPage) {
@@ -696,7 +694,18 @@ private fun MediaPage(
                 onZoomStateChanged(false)
             }
         }
-        VideoPlayer(uri = media.uri, onTap = onTap, bottomInset = bottomInset, showControls = showControls)
+        if (isCurrentPage) {
+            VideoPlayer(
+                uri = media.uri,
+                onTap = onTap,
+                bottomInset = bottomInset,
+                showControls = showControls,
+                onPrevious = onPrevious,
+                onNext = onNext,
+            )
+        } else {
+            VideoPoster(media = media, onTap = onTap)
+        }
     } else {
         ZoomableImage(
             uri = media.uri,
@@ -704,6 +713,32 @@ private fun MediaPage(
             onTap = onTap,
             isCurrentPage = isCurrentPage,
             onZoomStateChanged = onZoomStateChanged,
+        )
+    }
+}
+
+@Composable
+private fun VideoPoster(media: MediaItem, onTap: () -> Unit) {
+    val context = LocalContext.current
+    val request = remember(media.uri) {
+        ImageRequest.Builder(context)
+            .data(media.uri)
+            .videoFrameMillis(1_000)
+            .memoryCachePolicy(CachePolicy.ENABLED)
+            .build()
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .pointerInput(media.id) { detectTapGestures(onTap = { onTap() }) },
+        contentAlignment = Alignment.Center,
+    ) {
+        AsyncImage(
+            model = request,
+            contentDescription = media.name,
+            contentScale = ContentScale.Fit,
+            modifier = Modifier.fillMaxSize(),
         )
     }
 }
@@ -754,11 +789,26 @@ private fun ZoomableImage(
 private const val SEEK_INCREMENT_MS = 10_000L
 
 @Composable
-private fun VideoPlayer(uri: Uri, onTap: () -> Unit, bottomInset: Dp, showControls: Boolean) {
+@androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+private fun VideoPlayer(
+    uri: Uri,
+    onTap: () -> Unit,
+    bottomInset: Dp,
+    showControls: Boolean,
+    onPrevious: () -> Unit,
+    onNext: () -> Unit,
+) {
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val isDarkPlayer = MaterialTheme.colorScheme.background.luminance() < 0.5f
+    val playerText = if (isDarkPlayer) Color(0xFFF3F4F5) else Color(0xFF1D1F20)
+    val playerDim = if (isDarkPlayer) Color(0xFF8D949C) else Color(0xFF6C7278)
+    val playerPanel = if (isDarkPlayer) Color(0xFF0D0E10) else Color(0xFFFBFBFB)
     val exoPlayer = remember(uri) {
         ExoPlayer.Builder(context).build().apply {
             setMediaItem(Media3Item.fromUri(uri))
+            setHandleAudioBecomingNoisy(true)
+            repeatMode = Player.REPEAT_MODE_OFF
             prepare()
             playWhenReady = true
         }
@@ -768,31 +818,54 @@ private fun VideoPlayer(uri: Uri, onTap: () -> Unit, bottomInset: Dp, showContro
     var isPlaying by remember(uri) { mutableStateOf(exoPlayer.playWhenReady) }
     var isSeeking by remember(uri) { mutableStateOf(false) }
     var seekPositionMs by remember(uri) { mutableLongStateOf(0L) }
+    var isBuffering by remember(uri) { mutableStateOf(true) }
+    var playbackError by remember(uri) { mutableStateOf<String?>(null) }
+    var playbackSpeed by remember(uri) { mutableFloatStateOf(1f) }
+    var isMuted by remember(uri) { mutableStateOf(false) }
     val activePositionMs = if (isSeeking) seekPositionMs else currentPositionMs
     val previewRequestMs = if (isSeeking) (seekPositionMs / 500L) * 500L else -1L
 
     // Double-tap seek indicators
     var seekIndicator by remember { mutableStateOf<SeekDirection?>(null) }
     val coroutineScope = rememberCoroutineScope()
+    val latestIsSeeking by rememberUpdatedState(isSeeking)
 
-    DisposableEffect(exoPlayer, isSeeking) {
-        val listener = object : androidx.media3.common.Player.Listener {
+    DisposableEffect(exoPlayer, lifecycleOwner) {
+        val listener = object : Player.Listener {
             override fun onIsPlayingChanged(playing: Boolean) { isPlaying = playing }
-            override fun onEvents(player: androidx.media3.common.Player, events: androidx.media3.common.Player.Events) {
+            override fun onPlaybackStateChanged(playbackState: Int) {
+                isBuffering = playbackState == Player.STATE_BUFFERING
+            }
+            override fun onPlayerError(error: PlaybackException) {
+                playbackError = error.localizedMessage ?: "Unable to play this video"
+                isBuffering = false
+            }
+            override fun onEvents(player: Player, events: Player.Events) {
                 durationMs = player.duration.coerceAtLeast(0L)
-                if (!isSeeking) currentPositionMs = player.currentPosition.coerceAtLeast(0L)
+                if (!latestIsSeeking) currentPositionMs = player.currentPosition.coerceAtLeast(0L)
+            }
+        }
+        val lifecycleObserver = LifecycleEventObserver { _, event ->
+            val isInPictureInPicture = (context as? Activity)?.isInPictureInPictureMode == true
+            if (!isInPictureInPicture && (event == Lifecycle.Event.ON_PAUSE || event == Lifecycle.Event.ON_STOP)) {
+                exoPlayer.pause()
             }
         }
         exoPlayer.addListener(listener)
+        lifecycleOwner.lifecycle.addObserver(lifecycleObserver)
         durationMs = exoPlayer.duration.coerceAtLeast(0L)
         currentPositionMs = exoPlayer.currentPosition.coerceAtLeast(0L)
         onDispose {
+            lifecycleOwner.lifecycle.removeObserver(lifecycleObserver)
             exoPlayer.removeListener(listener)
+            exoPlayer.pause()
+            exoPlayer.stop()
+            exoPlayer.clearMediaItems()
             exoPlayer.release()
         }
     }
 
-    LaunchedEffect(exoPlayer, isSeeking) {
+    LaunchedEffect(exoPlayer) {
         while (true) {
             if (!isSeeking) {
                 durationMs = exoPlayer.duration.coerceAtLeast(0L)
@@ -803,72 +876,123 @@ private fun VideoPlayer(uri: Uri, onTap: () -> Unit, bottomInset: Dp, showContro
         }
     }
 
-    val previewBitmap by produceState<Bitmap?>(initialValue = null, uri, previewRequestMs) {
-        if (previewRequestMs < 0L) { value = null; return@produceState }
-        value = loadVideoPreviewFrame(context, uri, previewRequestMs)
+    var previewBitmap by remember(uri) { mutableStateOf<Bitmap?>(null) }
+    LaunchedEffect(uri, previewRequestMs) {
+        previewBitmap = if (previewRequestMs < 0L) {
+            null
+        } else {
+            loadVideoPreviewFrame(context, uri, previewRequestMs)
+        }
+    }
+    val togglePlayback = {
+        if (exoPlayer.isPlaying) {
+            exoPlayer.pause()
+        } else {
+            if (exoPlayer.playbackState == Player.STATE_ENDED) {
+                exoPlayer.seekTo(0L)
+                currentPositionMs = 0L
+            }
+            exoPlayer.play()
+        }
     }
 
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .pointerInput(Unit) {
-                detectTapGestures(
-                    onTap = { offset ->
-                        val width = size.width
-                        when {
-                            offset.x < width * 0.33f -> {
-                                // Left tap area — handled by double-tap; single tap shows controls
-                                onTap()
-                            }
-                            offset.x > width * 0.67f -> {
-                                onTap()
-                            }
-                            else -> onTap()
-                        }
-                    },
-                    onDoubleTap = { offset ->
-                        val width = size.width
-                        if (offset.x < width / 2) {
-                            // Double-tap left: seek backward
-                            val newPos = (exoPlayer.currentPosition - SEEK_INCREMENT_MS).coerceAtLeast(0L)
-                            exoPlayer.seekTo(newPos)
-                            currentPositionMs = newPos
-                            seekIndicator = SeekDirection.BACKWARD
-                        } else {
-                            // Double-tap right: seek forward
-                            val newPos = (exoPlayer.currentPosition + SEEK_INCREMENT_MS).coerceAtMost(
-                                exoPlayer.duration.coerceAtLeast(0L)
-                            )
-                            exoPlayer.seekTo(newPos)
-                            currentPositionMs = newPos
-                            seekIndicator = SeekDirection.FORWARD
-                        }
-                        coroutineScope.launch {
-                            delay(800)
-                            seekIndicator = null
-                        }
-                    },
-                )
-            }
-    ) {
+    Box(modifier = Modifier.fillMaxSize()) {
         AndroidView(
             factory = { ctx ->
                 PlayerView(ctx).apply {
                     player = exoPlayer
                     useController = false
+                    setKeepContentOnPlayerReset(true)
+                    resizeMode = androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT
+                    setShutterBackgroundColor(android.graphics.Color.TRANSPARENT)
+                    setBackgroundColor(android.graphics.Color.TRANSPARENT)
                 }
             },
+            update = { it.player = exoPlayer },
             modifier = Modifier
                 .fillMaxSize()
-                .padding(bottom = bottomInset),
+                .pointerInput(Unit) {
+                    detectTapGestures(
+                        onTap = { onTap() },
+                        onDoubleTap = { offset ->
+                            val width = size.width
+                            if (offset.x < width / 2) {
+                                val newPos = (exoPlayer.currentPosition - SEEK_INCREMENT_MS).coerceAtLeast(0L)
+                                exoPlayer.seekTo(newPos)
+                                currentPositionMs = newPos
+                                seekIndicator = SeekDirection.BACKWARD
+                            } else {
+                                val requestedPosition = exoPlayer.currentPosition + SEEK_INCREMENT_MS
+                                val knownDuration = exoPlayer.duration.coerceAtLeast(0L)
+                                val newPos = if (knownDuration > 0L) {
+                                    requestedPosition.coerceAtMost(knownDuration)
+                                } else {
+                                    requestedPosition
+                                }
+                                exoPlayer.seekTo(newPos)
+                                currentPositionMs = newPos
+                                seekIndicator = SeekDirection.FORWARD
+                            }
+                            coroutineScope.launch {
+                                delay(800)
+                                seekIndicator = null
+                            }
+                        },
+                    )
+                },
         )
 
-        // Double-tap seek ripple indicators
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(120.dp)
+                .align(Alignment.BottomCenter)
+                .background(
+                    Brush.verticalGradient(
+                        colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.55f)),
+                    ),
+                ),
+        )
+
+        if (isBuffering) {
+            CircularProgressIndicator(
+                color = Color.White,
+                strokeWidth = 2.dp,
+                modifier = Modifier.align(Alignment.Center).size(36.dp),
+            )
+        }
+
+        playbackError?.let { message ->
+            Surface(
+                color = Color.Black.copy(alpha = 0.78f),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.align(Alignment.Center).padding(24.dp),
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.padding(16.dp),
+                ) {
+                    Text(message, color = Color.White, style = MaterialTheme.typography.bodyMedium)
+                    TextButton(
+                        onClick = {
+                            playbackError = null
+                            isBuffering = true
+                            exoPlayer.prepare()
+                            exoPlayer.play()
+                        },
+                    ) {
+                        Text("RETRY")
+                    }
+                }
+            }
+        }
+
         AnimatedVisibility(
             visible = seekIndicator == SeekDirection.BACKWARD,
             enter = fadeIn(),
             exit = fadeOut(),
-            modifier = Modifier.align(Alignment.CenterStart).padding(start = 24.dp),
+            modifier = Modifier.align(Alignment.CenterStart).padding(start = 28.dp),
         ) {
             SeekIndicator(direction = SeekDirection.BACKWARD)
         }
@@ -877,29 +1001,29 @@ private fun VideoPlayer(uri: Uri, onTap: () -> Unit, bottomInset: Dp, showContro
             visible = seekIndicator == SeekDirection.FORWARD,
             enter = fadeIn(),
             exit = fadeOut(),
-            modifier = Modifier.align(Alignment.CenterEnd).padding(end = 24.dp),
+            modifier = Modifier.align(Alignment.CenterEnd).padding(end = 28.dp),
         ) {
             SeekIndicator(direction = SeekDirection.FORWARD)
         }
 
         AnimatedVisibility(
-            visible = showControls,
-            enter = fadeIn(),
-            exit = fadeOut(),
+            visible = showControls && !isPlaying,
+            enter = fadeIn() + scaleIn(initialScale = 0.9f),
+            exit = fadeOut() + scaleOut(targetScale = 0.9f),
             modifier = Modifier.align(Alignment.Center),
         ) {
             FilledIconButton(
-                onClick = { if (exoPlayer.isPlaying) exoPlayer.pause() else exoPlayer.play() },
+                onClick = togglePlayback,
                 colors = IconButtonDefaults.filledIconButtonColors(
-                    containerColor = Color.Black.copy(alpha = 0.54f),
+                    containerColor = Color.White.copy(alpha = 0.18f),
                     contentColor = Color.White,
                 ),
-                modifier = Modifier.size(68.dp),
+                modifier = Modifier.size(72.dp),
             ) {
                 Icon(
-                    imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                    contentDescription = if (isPlaying) "Pause" else "Play",
-                    modifier = Modifier.size(34.dp),
+                    imageVector = Icons.Default.PlayArrow,
+                    contentDescription = "Play",
+                    modifier = Modifier.size(36.dp),
                 )
             }
         }
@@ -908,114 +1032,248 @@ private fun VideoPlayer(uri: Uri, onTap: () -> Unit, bottomInset: Dp, showContro
             visible = showControls,
             enter = fadeIn() + slideInVertically(initialOffsetY = { it / 2 }),
             exit = fadeOut() + slideOutVertically(targetOffsetY = { it / 2 }),
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(start = 16.dp, end = 16.dp, bottom = bottomInset + 16.dp),
+            modifier = Modifier.align(Alignment.BottomCenter),
         ) {
             Surface(
-                color = Color.Black.copy(alpha = 0.62f),
-                shape = RoundedCornerShape(22.dp),
+                color = playerPanel.copy(alpha = 0.96f),
+                shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
                 tonalElevation = 0.dp,
+                modifier = Modifier.fillMaxWidth(),
             ) {
                 Column(
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier
+                        .navigationBarsPadding()
+                        .padding(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
-                    if (isSeeking) {
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
-                            Surface(color = Color.Black.copy(alpha = 0.72f), shape = RoundedCornerShape(18.dp)) {
-                                Column(
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                    modifier = Modifier.padding(8.dp),
-                                ) {
-                                    if (previewBitmap != null) {
-                                        Image(
-                                            bitmap = previewBitmap!!.asImageBitmap(),
-                                            contentDescription = null,
-                                            contentScale = ContentScale.Crop,
-                                            modifier = Modifier
-                                                .size(width = 128.dp, height = 72.dp)
-                                                .clip(RoundedCornerShape(12.dp)),
-                                        )
-                                        Spacer(Modifier.height(6.dp))
-                                    }
-                                    Text(
-                                        text = DateUtils.formatDuration(activePositionMs),
-                                        style = MaterialTheme.typography.labelMedium,
-                                        color = Color.White,
-                                    )
-                                }
-                            }
-                        }
-                    }
-
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                    ) {
-                        IconButton(
-                            onClick = {
-                                val newPos = (exoPlayer.currentPosition - SEEK_INCREMENT_MS).coerceAtLeast(0L)
-                                exoPlayer.seekTo(newPos)
-                                currentPositionMs = newPos
-                            },
-                            modifier = Modifier.size(36.dp),
-                        ) {
-                            Icon(Icons.Default.Replay10, contentDescription = "Rewind 10s", tint = Color.White, modifier = Modifier.size(22.dp))
-                        }
-
-                        Slider(
-                            value = activePositionMs.toFloat(),
-                            onValueChange = { newValue ->
-                                isSeeking = true
-                                seekPositionMs = newValue.toLong().coerceIn(0L, durationMs.coerceAtLeast(0L))
-                            },
-                            onValueChangeFinished = {
-                                exoPlayer.seekTo(seekPositionMs)
-                                currentPositionMs = seekPositionMs
-                                isSeeking = false
-                            },
-                            valueRange = 0f..durationMs.coerceAtLeast(1L).toFloat(),
-                            colors = SliderDefaults.colors(
-                                thumbColor = Color.White,
-                                activeTrackColor = MaterialTheme.colorScheme.primary,
-                                inactiveTrackColor = Color.White.copy(alpha = 0.24f),
-                            ),
-                            modifier = Modifier.weight(1f),
-                        )
-
-                        IconButton(
-                            onClick = {
-                                val newPos = (exoPlayer.currentPosition + SEEK_INCREMENT_MS)
-                                    .coerceAtMost(durationMs.coerceAtLeast(0L))
-                                exoPlayer.seekTo(newPos)
-                                currentPositionMs = newPos
-                            },
-                            modifier = Modifier.size(36.dp),
-                        ) {
-                            Icon(Icons.Default.Forward10, contentDescription = "Forward 10s", tint = Color.White, modifier = Modifier.size(22.dp))
+                    if (isSeeking && previewBitmap != null) {
+                        Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                            Image(
+                                bitmap = previewBitmap!!.asImageBitmap(),
+                                contentDescription = null,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier
+                                    .size(width = 140.dp, height = 80.dp)
+                                    .clip(RoundedCornerShape(10.dp)),
+                            )
                         }
                     }
 
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Text(
                             text = DateUtils.formatDuration(activePositionMs),
-                            style = MaterialTheme.typography.labelMedium,
-                            color = Color.White.copy(alpha = 0.92f),
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.primary,
                         )
                         Text(
-                            text = DateUtils.formatDuration(durationMs),
-                            style = MaterialTheme.typography.labelMedium,
-                            color = Color.White.copy(alpha = 0.7f),
+                            text = "−${DateUtils.formatDuration((durationMs - activePositionMs).coerceAtLeast(0L))}",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = playerDim,
                         )
+                    }
+
+                    VideoFilmstripScrubber(
+                        uri = uri,
+                        durationMs = durationMs,
+                        positionMs = activePositionMs,
+                        onPositionChange = { newPosition ->
+                            isSeeking = true
+                            seekPositionMs = newPosition
+                        },
+                        onPositionChangeFinished = {
+                            exoPlayer.seekTo(seekPositionMs)
+                            currentPositionMs = seekPositionMs
+                            isSeeking = false
+                        },
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceEvenly,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        IconButton(onClick = {
+                            val newPos = (exoPlayer.currentPosition - SEEK_INCREMENT_MS).coerceAtLeast(0L)
+                            exoPlayer.seekTo(newPos)
+                            currentPositionMs = newPos
+                        }) {
+                            Icon(Icons.Default.Replay10, contentDescription = "Back 10 seconds", tint = playerText)
+                        }
+                        IconButton(onClick = onPrevious) {
+                            Icon(Icons.Default.SkipPrevious, contentDescription = "Previous", tint = playerText)
+                        }
+                        FilledIconButton(
+                            onClick = togglePlayback,
+                            modifier = Modifier.size(52.dp),
+                            colors = IconButtonDefaults.filledIconButtonColors(
+                                containerColor = MaterialTheme.colorScheme.primary,
+                                contentColor = if (isDarkPlayer) Color(0xFF0D0E10) else Color.White,
+                            ),
+                        ) {
+                            Icon(
+                                if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                                contentDescription = if (isPlaying) "Pause" else "Play",
+                                modifier = Modifier.size(26.dp),
+                            )
+                        }
+                        IconButton(onClick = onNext) {
+                            Icon(Icons.Default.SkipNext, contentDescription = "Next", tint = playerText)
+                        }
+                        IconButton(onClick = {
+                            val requestedPosition = exoPlayer.currentPosition + SEEK_INCREMENT_MS
+                            val knownDuration = exoPlayer.duration.coerceAtLeast(0L)
+                            val newPos = if (knownDuration > 0L) {
+                                requestedPosition.coerceAtMost(knownDuration)
+                            } else {
+                                requestedPosition
+                            }
+                            exoPlayer.seekTo(newPos)
+                            currentPositionMs = newPos
+                        }) {
+                            Icon(Icons.Default.Forward10, contentDescription = "Forward 10 seconds", tint = playerText)
+                        }
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        PlayerChip(
+                            selected = true,
+                            onClick = {
+                                playbackSpeed = when (playbackSpeed) {
+                                    0.5f -> 1f
+                                    1f -> 1.5f
+                                    1.5f -> 2f
+                                    else -> 0.5f
+                                }
+                                exoPlayer.setPlaybackSpeed(playbackSpeed)
+                            },
+                        ) {
+                            Text("${playbackSpeed}×", style = MaterialTheme.typography.labelLarge)
+                        }
+                        PlayerChip(
+                            selected = isMuted,
+                            onClick = {
+                                isMuted = !isMuted
+                                exoPlayer.volume = if (isMuted) 0f else 1f
+                            },
+                        ) {
+                            Icon(
+                                if (isMuted) Icons.AutoMirrored.Filled.VolumeOff else Icons.AutoMirrored.Filled.VolumeUp,
+                                contentDescription = if (isMuted) "Unmute" else "Mute",
+                                modifier = Modifier.size(18.dp),
+                            )
+                        }
+                        PlayerChip(
+                            selected = false,
+                            onClick = {
+                                (context as? Activity)?.enterPictureInPictureMode(
+                                    PictureInPictureParams.Builder()
+                                        .setAspectRatio(Rational(16, 9))
+                                        .build(),
+                                )
+                            },
+                        ) {
+                            Icon(
+                                Icons.Default.PictureInPictureAlt,
+                                contentDescription = "Picture in picture",
+                                modifier = Modifier.size(18.dp),
+                            )
+                        }
                     }
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun PlayerChip(
+    selected: Boolean,
+    onClick: () -> Unit,
+    content: @Composable RowScope.() -> Unit,
+) {
+    val accent = MaterialTheme.colorScheme.primary
+    val outline = MaterialTheme.colorScheme.outline
+    Row(
+        modifier = Modifier
+            .height(36.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .border(1.dp, if (selected) accent else outline, RoundedCornerShape(10.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.Center,
+        content = content,
+    )
+}
+
+@Composable
+private fun VideoBadge(label: String) {
+    Text(
+        text = label,
+        color = Color.White,
+        style = MaterialTheme.typography.labelSmall,
+        fontSize = 9.5.sp,
+        letterSpacing = androidx.compose.ui.unit.TextUnit(0.14f, androidx.compose.ui.unit.TextUnitType.Em),
+        modifier = Modifier
+            .background(Color.Black.copy(alpha = 0.48f))
+            .padding(horizontal = 7.dp, vertical = 3.dp),
+    )
+}
+
+@Composable
+private fun VideoFilmstripScrubber(
+    uri: Uri,
+    durationMs: Long,
+    positionMs: Long,
+    onPositionChange: (Long) -> Unit,
+    onPositionChangeFinished: () -> Unit,
+) {
+    val context = LocalContext.current
+    val safeDuration = durationMs.coerceAtLeast(1L)
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(48.dp)
+            .clip(RoundedCornerShape(8.dp)),
+    ) {
+        Row(modifier = Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+            repeat(12) { index ->
+                val frameRequest = remember(uri, safeDuration, index) {
+                    ImageRequest.Builder(context)
+                        .data(uri)
+                        .videoFrameMillis((safeDuration * index) / 11L)
+                        .memoryCachePolicy(CachePolicy.ENABLED)
+                        .diskCachePolicy(CachePolicy.ENABLED)
+                        .build()
+                }
+                AsyncImage(
+                    model = frameRequest,
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.weight(1f).fillMaxHeight(),
+                )
+            }
+        }
+        Slider(
+            value = positionMs.coerceIn(0L, safeDuration).toFloat(),
+            onValueChange = { onPositionChange(it.toLong().coerceIn(0L, safeDuration)) },
+            onValueChangeFinished = onPositionChangeFinished,
+            valueRange = 0f..safeDuration.toFloat(),
+            colors = SliderDefaults.colors(
+                thumbColor = MaterialTheme.colorScheme.primary,
+                activeTrackColor = Color.Transparent,
+                inactiveTrackColor = Color.Transparent,
+            ),
+            modifier = Modifier.fillMaxSize(),
+        )
     }
 }
 
@@ -1323,6 +1581,9 @@ private fun OcrTextPanel(
 
 @Composable
 private fun MediaInfoSheet(media: MediaItem, onDismiss: () -> Unit) {
+    val context = LocalContext.current
+    val exifInfo = remember(media.uri) { ExifUtils.getExifInfo(context, media.uri) }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -1334,25 +1595,56 @@ private fun MediaInfoSheet(media: MediaItem, onDismiss: () -> Unit) {
             tonalElevation = 8.dp,
             modifier = Modifier.fillMaxWidth(),
         ) {
-            Column(modifier = Modifier.padding(24.dp).navigationBarsPadding()) {
+            Column(
+                modifier = Modifier
+                    .padding(24.dp)
+                    .navigationBarsPadding()
+                    .verticalScroll(rememberScrollState())
+            ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text("Details", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                    Text("Details & EXIF Metadata", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                     IconButton(onClick = onDismiss) { Icon(Icons.Default.Close, contentDescription = "Close") }
                 }
-                Spacer(Modifier.height(16.dp))
+                Spacer(Modifier.height(12.dp))
                 InfoRow("Name", media.name)
                 InfoRow("Date", DateUtils.formatDetailDate(media.dateAdded))
                 InfoRow("Size", DateUtils.formatFileSize(media.size))
-                if (media.width > 0 && media.height > 0)
-                    InfoRow("Resolution", "${media.width} × ${media.height}")
-                if (media.mediaType == MediaType.VIDEO && media.duration > 0)
+                val w = if (exifInfo.width > 0) exifInfo.width else media.width
+                val h = if (exifInfo.height > 0) exifInfo.height else media.height
+                if (w > 0 && h > 0) {
+                    InfoRow("Resolution", "$w × $h")
+                }
+                if (media.mediaType == MediaType.VIDEO && media.duration > 0) {
                     InfoRow("Duration", DateUtils.formatDuration(media.duration))
+                }
                 InfoRow("Album", media.bucketName.ifBlank { "Unknown" })
                 InfoRow("Path", media.path)
+
+                // EXIF Section
+                if (exifInfo.make != null || exifInfo.model != null || exifInfo.iso != null || exifInfo.aperture != null) {
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
+                    Text("Camera Metadata", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                    Spacer(Modifier.height(6.dp))
+                    if (!exifInfo.make.isNullOrBlank() || !exifInfo.model.isNullOrBlank()) {
+                        InfoRow("Camera", "${exifInfo.make.orEmpty()} ${exifInfo.model.orEmpty()}".trim())
+                    }
+                    if (!exifInfo.aperture.isNullOrBlank()) InfoRow("Aperture", exifInfo.aperture)
+                    if (!exifInfo.focalLength.isNullOrBlank()) InfoRow("Focal Length", exifInfo.focalLength)
+                    if (!exifInfo.iso.isNullOrBlank()) InfoRow("ISO", "ISO ${exifInfo.iso}")
+                    if (!exifInfo.exposureTime.isNullOrBlank()) InfoRow("Shutter Speed", exifInfo.exposureTime)
+                    if (!exifInfo.flash.isNullOrBlank()) InfoRow("Flash", exifInfo.flash)
+                }
+
+                if (exifInfo.latitude != null && exifInfo.longitude != null) {
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
+                    Text("Location (GPS)", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                    Spacer(Modifier.height(6.dp))
+                    InfoRow("Coordinates", "%.5f, %.5f".format(exifInfo.latitude, exifInfo.longitude))
+                }
             }
         }
     }
@@ -1361,7 +1653,7 @@ private fun MediaInfoSheet(media: MediaItem, onDismiss: () -> Unit) {
 @Composable
 private fun InfoRow(label: String, value: String) {
     Row(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
-        Text(label, modifier = Modifier.width(90.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+        Text(label, modifier = Modifier.width(110.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
         Text(value, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
     }
 }

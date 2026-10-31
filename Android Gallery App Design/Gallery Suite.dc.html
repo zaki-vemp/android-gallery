@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="_ds/industry-a04ce620-7cde-41f0-a1ce-2062c8f44431/styles.css">
+<script src="_ds/industry-a04ce620-7cde-41f0-a1ce-2062c8f44431/_ds_bundle.js"></script>
+<meta name="design_doc_mode" content="canvas">
+<style>body{margin:0;background:var(--color-bg)}a{color:var(--color-accent-700);text-decoration:none}a:hover{color:var(--color-accent-900)}</style>
+</helmet>
+<div style="min-height:100vh;background:var(--color-bg);color:var(--color-text);font-family:var(--font-body);padding:40px 44px 64px">
+
+  <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:32px;flex-wrap:wrap;border-bottom:1px solid var(--color-neutral-300);padding-bottom:18px">
+    <div>
+      <div style="font-family:var(--font-body);font-size:11px;letter-spacing:.2em;text-transform:uppercase;color:var(--color-accent-700)">Android · Compose · MediaStore</div>
+      <h1 style="margin:6px 0 0;font-family:var(--font-heading);font-size:54px;line-height:.95;letter-spacing:.01em;text-transform:uppercase;font-weight:600">Aperture Gallery</h1>
+      <p style="margin:10px 0 0;max-width:56ch;font-size:14px;line-height:1.65;color:var(--color-neutral-700);text-wrap:pretty">Interactive UI spec for the flagship gallery: date‑grouped grid, generated albums, on‑device search, the encrypted Private Safe, and the media viewer. Both surfaces are live — tap a tile to open the viewer, tap a tile with a duration badge to open the video player.</p>
+    </div>
+    <div style="display:grid;grid-template-columns:auto auto;gap:4px 18px;font-size:12px;color:var(--color-neutral-700)">
+      <span style="letter-spacing:.14em;text-transform:uppercase;color:var(--color-neutral-600)">Grid</span><span>Tap the ⊞ chip · 2 / 3 / 4 columns</span>
+      <span style="letter-spacing:.14em;text-transform:uppercase;color:var(--color-neutral-600)">Safe</span><span>Any 4 digits, or fingerprint</span>
+      <span style="letter-spacing:.14em;text-transform:uppercase;color:var(--color-neutral-600)">Player</span><span>Filmstrip scrub · speed · mute · PiP</span>
+    </div>
+  </div>
+
+  <div style="display:flex;flex-wrap:wrap;gap:56px;margin-top:40px;align-items:flex-start">
+
+    <div style="display:flex;flex-direction:column;gap:14px">
+      <div style="display:flex;align-items:baseline;gap:10px">
+        <span style="font-family:var(--font-heading);font-size:22px;text-transform:uppercase;letter-spacing:.05em">Dark</span>
+        <span style="font-size:11.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--color-neutral-600)">Ink ground · #0D0E10</span>
+      </div>
+      <p style="margin:0;max-width:40ch;font-size:12.5px;line-height:1.6;color:var(--color-neutral-700)">Photographs carry all the colour; chrome recedes to hairlines and a single steel accent. Viewer and player run near‑black so the frame is the only lit object.</p>
+      <dc-import name="GalleryPhone" theme="dark" accent="#7fa9d4" hint-size="460px,940px"></dc-import>
+    </div>
+
+    <div style="display:flex;flex-direction:column;gap:14px">
+      <div style="display:flex;align-items:baseline;gap:10px">
+        <span style="font-family:var(--font-heading);font-size:22px;text-transform:uppercase;letter-spacing:.05em">Light</span>
+        <span style="font-size:11.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--color-neutral-600)">Paper ground · #F2F2F3</span>
+      </div>
+      <p style="margin:0;max-width:40ch;font-size:12.5px;line-height:1.6;color:var(--color-neutral-700)">Same geometry inverted onto paper. The player keeps the light ground rather than dimming to black — the scrub filmstrip is masked with paper instead of ink, and transport sits in the accent.</p>
+      <dc-import name="GalleryPhone" theme="light" accent="#5980a6" hint-size="460px,940px"></dc-import>
+    </div>
+
+  </div>
+
+  <div style="margin-top:56px;border-top:1px solid var(--color-neutral-300);padding-top:20px;display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:28px">
+    <div>
+      <div style="font-family:var(--font-heading);font-size:15px;text-transform:uppercase;letter-spacing:.06em">Video player</div>
+      <p style="margin:6px 0 0;font-size:12.5px;line-height:1.6;color:var(--color-neutral-700)">Frame‑accurate filmstrip scrubber (tap any frame to seek), transport with step‑back / step‑forward, speed cycle 0.5–2×, mute, PiP and trim. HDR / Dolby badges over the surface.</p>
+    </div>
+    <div>
+      <div style="font-family:var(--font-heading);font-size:15px;text-transform:uppercase;letter-spacing:.06em">Private Safe</div>
+      <p style="margin:6px 0 0;font-size:12.5px;line-height:1.6;color:var(--color-neutral-700)">PIN keypad and biometric path, AES‑256 via Keystore, FLAG_SECURE banner while unlocked, move‑in / restore actions.</p>
+    </div>
+    <div>
+      <div style="font-family:var(--font-heading);font-size:15px;text-transform:uppercase;letter-spacing:.06em">Next</div>
+      <p style="margin:6px 0 0;font-size:12.5px;line-height:1.6;color:var(--color-neutral-700)">Editor (crop / rotate / filters), multi‑select and share sheet, trash with 30‑day countdown, settings with accent picker. Say which to build next.</p>
+    </div>
+  </div>
+
+</div>
+</x-dc>
+</body>
+</html>

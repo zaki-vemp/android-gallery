@@ -1,122 +1,163 @@
 package com.gallery.android.ui.albums
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.grid.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.PhotoAlbum
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.em
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.gallery.android.domain.model.Album
+import com.gallery.android.ui.components.ApertureHeader
+import com.gallery.android.ui.components.FrameCorners
+import com.gallery.android.ui.components.GalleryMotion
+import com.gallery.android.ui.components.HairlineIconButton
+import com.gallery.android.ui.components.SectionKicker
+import com.gallery.android.ui.components.scaleOnPress
+import java.util.Locale
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AlbumsScreen(
     onAlbumClick: (Album) -> Unit,
     onFavoritesClick: () -> Unit = {},
     onTrashClick: () -> Unit = {},
     onSafeClick: () -> Unit = {},
+    onCollageClick: () -> Unit = {},
     viewModel: AlbumsViewModel = hiltViewModel(),
 ) {
     val albums by viewModel.albums.collectAsStateWithLifecycle()
     var showCreateDialog by remember { mutableStateOf(false) }
 
-    Scaffold(
-        topBar = {
-            CenterAlignedTopAppBar(
-                title = { Text("Albums", fontWeight = FontWeight.Bold) },
-                actions = {
-                    IconButton(onClick = { showCreateDialog = true }) {
-                        Icon(Icons.Default.CreateNewFolder, contentDescription = "New Album")
-                    }
-                }
-            )
-        }
-    ) { padding ->
+    val generated = remember(albums) { albums.filter { !it.isUserCreated } }
+    val mine = remember(albums) { albums.filter { it.isUserCreated } }
+    val pinned = remember(generated) {
+        val camera = generated.find { it.name.contains("camera", ignoreCase = true) }
+        val shots = generated.find { it.name.contains("screenshot", ignoreCase = true) }
+        listOfNotNull(camera, shots).ifEmpty { generated.take(2) }
+    }
+    val restGenerated = remember(generated, pinned) {
+        generated.filterNot { album -> pinned.any { it.bucketId == album.bucketId && it.id == album.id } }
+    }
+
+    Column(modifier = Modifier.fillMaxSize()) {
+        ApertureHeader(
+            title = "Albums",
+            subtitle = "${albums.size} albums",
+            actions = {
+                HairlineIconButton(
+                    onClick = { showCreateDialog = true },
+                    icon = Icons.Outlined.Add,
+                    contentDescription = "New album",
+                )
+            },
+        )
         LazyVerticalGrid(
             columns = GridCells.Fixed(2),
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding),
-            contentPadding = PaddingValues(start = 12.dp, top = 12.dp, end = 12.dp, bottom = 24.dp),
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 28.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             items(
-                items = albums,
-                key = { album ->
-                    if (album.isUserCreated) "user-${album.id}" else "bucket-${album.bucketId}"
-                },
+                items = pinned,
+                key = { "pinned-${it.bucketId}-${it.id}" },
             ) { album ->
-                AlbumCard(
+                PinnedAlbumCard(
                     album = album,
                     onClick = { onAlbumClick(album) },
-                )
-            }
-
-            // Section divider
-            item(span = { GridItemSpan(maxLineSpan) }) {
-                HorizontalDivider(
-                    modifier = Modifier.padding(vertical = 8.dp),
-                    color = MaterialTheme.colorScheme.outlineVariant,
-                )
-            }
-
-            // Utility section cards
-            item(key = "favorites") {
-                UtilityAlbumCard(
-                    title = "Favorites",
-                    subtitle = "Starred media",
-                    icon = Icons.Default.Favorite,
-                    iconTint = MaterialTheme.colorScheme.error,
-                    gradientColors = listOf(
-                        MaterialTheme.colorScheme.errorContainer,
-                        MaterialTheme.colorScheme.error.copy(alpha = 0.6f),
+                    modifier = Modifier.animateItem(
+                        fadeInSpec = GalleryMotion.Medium,
+                        placementSpec = GalleryMotion.Placement,
+                        fadeOutSpec = GalleryMotion.Fast,
                     ),
+                )
+            }
+
+            item(span = { GridItemSpan(maxLineSpan) }) {
+                SectionKicker("Generated", modifier = Modifier.padding(top = 14.dp, bottom = 0.dp))
+            }
+
+            items(restGenerated, key = { "gen-${it.bucketId}" }) { album ->
+                CompactAlbumRow(album = album, onClick = { onAlbumClick(album) })
+            }
+            item {
+                CompactUtilityRow(
+                    title = "Favourites",
+                    subtitle = "Starred",
                     onClick = onFavoritesClick,
                 )
             }
-            item(key = "trash") {
-                UtilityAlbumCard(
+            item {
+                CompactUtilityRow(
                     title = "Recently Deleted",
-                    subtitle = "Auto-deleted after 30 days",
-                    icon = Icons.Default.Delete,
-                    iconTint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    gradientColors = listOf(
-                        MaterialTheme.colorScheme.surfaceVariant,
-                        MaterialTheme.colorScheme.outline.copy(alpha = 0.4f),
-                    ),
+                    subtitle = "30d",
                     onClick = onTrashClick,
                 )
             }
-            item(key = "safe") {
-                UtilityAlbumCard(
+            item {
+                CompactUtilityRow(
                     title = "Private Safe",
-                    subtitle = "Encrypted & hidden",
-                    icon = Icons.Default.Lock,
-                    iconTint = MaterialTheme.colorScheme.primary,
-                    gradientColors = listOf(
-                        MaterialTheme.colorScheme.primaryContainer,
-                        MaterialTheme.colorScheme.primary.copy(alpha = 0.6f),
-                    ),
+                    subtitle = "Encrypted",
                     onClick = onSafeClick,
                 )
+            }
+            item {
+                CompactUtilityRow(
+                    title = "Collage",
+                    subtitle = "Layout",
+                    onClick = onCollageClick,
+                )
+            }
+
+            item(span = { GridItemSpan(maxLineSpan) }) {
+                SectionKicker("Mine", modifier = Modifier.padding(top = 14.dp, bottom = 0.dp))
+            }
+
+            items(mine, key = { "mine-${it.id}" }) { album ->
+                CompactAlbumRow(album = album, onClick = { onAlbumClick(album) })
+            }
+            item {
+                NewAlbumTile(onClick = { showCreateDialog = true })
             }
         }
     }
@@ -133,84 +174,161 @@ fun AlbumsScreen(
 }
 
 @Composable
-private fun UtilityAlbumCard(
-    title: String,
-    subtitle: String,
-    icon: ImageVector,
-    iconTint: Color,
-    gradientColors: List<Color>,
+private fun PinnedAlbumCard(
+    album: Album,
     onClick: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
-    Card(
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
-        shape = RoundedCornerShape(16.dp),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .scaleOnPress(0.98f)
+            .clickable(onClick = onClick),
     ) {
-        Column {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .aspectRatio(1f)
-                    .background(Brush.linearGradient(gradientColors)),
-                contentAlignment = Alignment.Center,
-            ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .aspectRatio(1f)
+                .clip(RoundedCornerShape(8.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant),
+        ) {
+            if (album.coverUri != null) {
+                AsyncImage(
+                    model = ImageRequest.Builder(LocalContext.current)
+                        .data(album.coverUri)
+                        .crossfade(180)
+                        .build(),
+                    contentDescription = album.name,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            } else {
                 Icon(
-                    imageVector = icon,
+                    Icons.Outlined.PhotoAlbum,
                     contentDescription = null,
-                    modifier = Modifier.size(56.dp),
-                    tint = iconTint,
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .size(36.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            Column(modifier = Modifier.padding(12.dp)) {
-                Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, maxLines = 1)
-                Text(
-                    subtitle,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.outline,
-                    maxLines = 1,
+            FrameCorners()
+        }
+        Text(
+            text = album.name.uppercase(Locale.getDefault()),
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.onSurface,
+            letterSpacing = 0.04.em,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(start = 2.dp, top = 8.dp),
+        )
+        Text(
+            text = "${album.mediaCount} items".uppercase(Locale.getDefault()),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            letterSpacing = 0.1.em,
+            modifier = Modifier.padding(start = 2.dp, top = 1.dp),
+        )
+    }
+}
+
+@Composable
+private fun CompactAlbumRow(album: Album, onClick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(1.dp, MaterialTheme.colorScheme.outline, RectangleShape)
+            .clickable(onClick = onClick)
+            .padding(9.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Box(
+            modifier = Modifier
+                .size(38.dp)
+                .clip(RoundedCornerShape(6.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant),
+        ) {
+            if (album.coverUri != null) {
+                AsyncImage(
+                    model = album.coverUri,
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize(),
                 )
             }
+        }
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = album.name,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = "${album.mediaCount} items",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                letterSpacing = 0.1.em,
+            )
         }
     }
 }
 
 @Composable
-private fun AlbumCard(album: Album, onClick: () -> Unit) {
-    Card(
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
-        shape = RoundedCornerShape(16.dp),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+private fun CompactUtilityRow(title: String, subtitle: String, onClick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(1.dp, MaterialTheme.colorScheme.outline, RectangleShape)
+            .clickable(onClick = onClick)
+            .padding(9.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
+        Box(
+            modifier = Modifier
+                .size(38.dp)
+                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.18f)),
+        )
         Column {
-            Box(modifier = Modifier.fillMaxWidth().aspectRatio(1f)) {
-                if (album.coverUri != null) {
-                    AsyncImage(
-                        model = ImageRequest.Builder(LocalContext.current)
-                            .data(album.coverUri)
-                            .crossfade(true)
-                            .build(),
-                        contentDescription = album.name,
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp)),
-                    )
-                } else {
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Icon(Icons.Default.PhotoAlbum, contentDescription = null, modifier = Modifier.size(48.dp), tint = MaterialTheme.colorScheme.outline)
-                    }
-                }
-            }
-            Column(modifier = Modifier.padding(12.dp)) {
-                Text(album.name, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, maxLines = 1)
-                Text(
-                    if (album.isUserCreated) "Custom album" else "${album.mediaCount} items",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.outline,
-                )
-            }
+            Text(title, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
+            Text(
+                subtitle.uppercase(Locale.getDefault()),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                letterSpacing = 0.1.em,
+            )
         }
+    }
+}
+
+@Composable
+private fun NewAlbumTile(onClick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(56.dp)
+            .border(1.dp, MaterialTheme.colorScheme.outline, RectangleShape)
+            .clickable(onClick = onClick),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.Center,
+    ) {
+        Icon(
+            Icons.Outlined.Add,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(15.dp),
+        )
+        Spacer(Modifier.size(8.dp))
+        Text(
+            "NEW ALBUM",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            letterSpacing = 0.08.em,
+        )
     }
 }
 
@@ -229,9 +347,10 @@ private fun CreateAlbumDialog(onConfirm: (String) -> Unit, onDismiss: () -> Unit
             )
         },
         confirmButton = {
-            TextButton(onClick = { if (name.isNotBlank()) onConfirm(name.trim()) }, enabled = name.isNotBlank()) {
-                Text("Create")
-            }
+            TextButton(
+                onClick = { if (name.isNotBlank()) onConfirm(name.trim()) },
+                enabled = name.isNotBlank(),
+            ) { Text("Create") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )

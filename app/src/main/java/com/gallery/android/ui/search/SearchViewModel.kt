@@ -1,6 +1,5 @@
 package com.gallery.android.ui.search
 
-import android.app.Application
 import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -9,6 +8,7 @@ import androidx.work.ExistingWorkPolicy
 import androidx.work.WorkManager
 import com.gallery.android.domain.model.MediaCategory
 import com.gallery.android.domain.model.MediaItem
+import com.gallery.android.domain.usecase.GetMediaUseCase
 import com.gallery.android.domain.usecase.SearchMediaUseCase
 import com.gallery.android.worker.OcrScanWorker
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -22,6 +22,7 @@ import javax.inject.Inject
 class SearchViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
     private val searchMediaUseCase: SearchMediaUseCase,
+    getMediaUseCase: GetMediaUseCase,
 ) : ViewModel() {
 
     private val _query = MutableStateFlow("")
@@ -40,6 +41,10 @@ class SearchViewModel @Inject constructor(
     val categoryResults: StateFlow<List<MediaItem>> = _categoryResults.asStateFlow()
 
     val categories: List<MediaCategory> = MediaCategory.entries.toList()
+
+    val moments: StateFlow<List<MediaItem>> = getMediaUseCase.getAll()
+        .map { it.take(18) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     init {
         @OptIn(FlowPreview::class)

@@ -1,46 +1,102 @@
 package com.gallery.android.ui.gallery
 
-import android.net.Uri
-import androidx.compose.animation.*
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
-import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.grid.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.FilterList
+import androidx.compose.material.icons.filled.GridView
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Photo
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.RadioButton
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerInputScope
-import androidx.compose.ui.input.pointer.positionChanged
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.IntOffset
-import androidx.compose.ui.unit.sp
+import androidx.compose.ui.unit.em
+import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import coil.compose.AsyncImage
-import coil.request.CachePolicy
-import coil.request.ImageRequest
-import coil.size.Size
-import com.gallery.android.domain.model.MediaItem
-import com.gallery.android.domain.model.MediaType
+import com.gallery.android.ui.components.GalleryEmptyState
+import com.gallery.android.ui.components.GalleryMotion
+import com.gallery.android.ui.components.MediaThumbnail
 import com.gallery.android.utils.DateUtils
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import java.util.Locale
 import kotlin.math.roundToInt
 
 @OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
@@ -51,10 +107,12 @@ fun GalleryScreen(
     onMediaClick: (Long) -> Unit,
     onFavoritesClick: () -> Unit,
     onTrashClick: () -> Unit,
+    onSettingsClick: () -> Unit = {},
     viewModel: GalleryViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     var showFilterDialog by remember { mutableStateOf(false) }
+    var showOverflowMenu by remember { mutableStateOf(false) }
     val gridState = rememberLazyGridState()
     val coroutineScope = rememberCoroutineScope()
 
@@ -71,12 +129,20 @@ fun GalleryScreen(
     }
 
     val groupedEntries = remember(filteredMedia) {
-        filteredMedia.groupBy { DateUtils.formatGroupDate(it.dateAdded) }.entries.toList()
+        filteredMedia.groupBy { DateUtils.formatGroupDate(it.dateAdded) }.map { (dateLabel, items) ->
+            val location = items
+                .groupingBy { it.bucketName.ifBlank { it.path.substringBeforeLast('/').substringAfterLast('/') } }
+                .eachCount()
+                .maxByOrNull { it.value }
+                ?.key
+                .orEmpty()
+            Triple(dateLabel, location, items)
+        }
     }
 
     val timelineSections = remember(groupedEntries) {
         var runningIndex = 0
-        groupedEntries.map { (dateLabel, items) ->
+        groupedEntries.map { (dateLabel, _, items) ->
             TimelineSection(label = dateLabel, itemIndex = runningIndex).also {
                 runningIndex += 1 + items.size
             }
@@ -84,7 +150,7 @@ fun GalleryScreen(
     }
 
     val isSelecting = uiState.selectedIds.isNotEmpty()
-    val activeTimelineIndex by remember(timelineSections, gridState) {
+    val activeTimelineIndex by remember {
         derivedStateOf {
             timelineSections.indexOfLast { it.itemIndex <= gridState.firstVisibleItemIndex }
                 .coerceAtLeast(0)
@@ -93,46 +159,112 @@ fun GalleryScreen(
 
     Scaffold(
         topBar = {
-            if (isSelecting) {
-                SelectionTopBar(
-                    count = uiState.selectedIds.size,
-                    onClose = viewModel::clearSelection,
-                    onDelete = viewModel::moveSelectedToTrash,
-                )
-            } else {
-                CenterAlignedTopAppBar(
-                    title = {
-                        Text(
-                            if (bucketId != null || customAlbumId != null) "Album" else "Photos",
-                            fontWeight = FontWeight.Bold,
+            AnimatedContent(
+                targetState = isSelecting,
+                transitionSpec = {
+                    (fadeIn(GalleryMotion.Fast) + slideInVertically { -it / 3 }) togetherWith
+                        (fadeOut(GalleryMotion.Fast) + slideOutVertically { -it / 3 })
+                },
+                label = "topBar",
+            ) { selecting ->
+                if (selecting) {
+                    SelectionTopBar(
+                        count = uiState.selectedIds.size,
+                        onClose = viewModel::clearSelection,
+                        onDelete = viewModel::moveSelectedToTrash,
+                    )
+                } else {
+                    Box {
+                        com.gallery.android.ui.components.ApertureHeader(
+                            title = if (bucketId != null || customAlbumId != null) "Album" else "Photos",
+                            subtitle = "${String.format(Locale.getDefault(), "%,d", filteredMedia.size)} items · ${DateUtils.formatFileSize(filteredMedia.sumOf { it.size })}",
+                            actions = {
+                                com.gallery.android.ui.components.HairlineChip(
+                                    onClick = {
+                                        val nextCols = when (uiState.gridColumns) {
+                                            2 -> 3
+                                            3 -> 4
+                                            else -> 2
+                                        }
+                                        viewModel.setGridColumns(nextCols)
+                                    },
+                                ) {
+                                    Icon(
+                                        Icons.Default.GridView,
+                                        contentDescription = "Change grid size",
+                                        modifier = Modifier.size(14.dp),
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                    Text(
+                                        "${uiState.gridColumns}",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                                com.gallery.android.ui.components.HairlineIconButton(
+                                    onClick = { showOverflowMenu = true },
+                                    icon = Icons.Default.MoreVert,
+                                    contentDescription = "More",
+                                )
+                            },
                         )
-                    },
-                    actions = {
-                        IconButton(onClick = { showFilterDialog = true }) {
-                            Icon(Icons.Default.FilterList, contentDescription = "Sort and filter")
+                        DropdownMenu(
+                            expanded = showOverflowMenu,
+                            onDismissRequest = { showOverflowMenu = false },
+                            modifier = Modifier.align(Alignment.TopEnd),
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("Sort and filter") },
+                                leadingIcon = { Icon(Icons.Default.FilterList, contentDescription = null) },
+                                onClick = {
+                                    showOverflowMenu = false
+                                    showFilterDialog = true
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Favourites") },
+                                leadingIcon = { Icon(Icons.Default.Favorite, contentDescription = null) },
+                                onClick = {
+                                    showOverflowMenu = false
+                                    onFavoritesClick()
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Recently deleted") },
+                                leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null) },
+                                onClick = {
+                                    showOverflowMenu = false
+                                    onTrashClick()
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Settings") },
+                                leadingIcon = { Icon(Icons.Default.Settings, contentDescription = null) },
+                                onClick = {
+                                    showOverflowMenu = false
+                                    onSettingsClick()
+                                },
+                            )
                         }
-                        GridSizeMenu(
-                            currentColumns = uiState.gridColumns,
-                            onColumnChange = viewModel::setGridColumns,
-                        )
-                        if (bucketId == null) {
-                            IconButton(onClick = onFavoritesClick) {
-                                Icon(Icons.Default.Favorite, contentDescription = "Favorites")
-                            }
-                            IconButton(onClick = onTrashClick) {
-                                Icon(Icons.Default.Delete, contentDescription = "Trash")
-                            }
-                        }
-                    },
-                )
+                    }
+                }
             }
-        }
+        },
     ) { padding ->
         if (filteredMedia.isEmpty()) {
-            EmptyState(
+            GalleryEmptyState(
+                icon = Icons.Default.Photo,
+                title = if (uiState.activeFilter == GalleryFilter.ALL) {
+                    "No photos or videos"
+                } else {
+                    "No matching items"
+                },
+                subtitle = if (uiState.activeFilter == GalleryFilter.ALL) {
+                    "Photos you take will show up here"
+                } else {
+                    uiState.activeFilter.label
+                },
                 modifier = Modifier.padding(padding),
-                title = if (uiState.activeFilter == GalleryFilter.ALL) "No photos or videos" else "No matching items",
-                subtitle = if (uiState.activeFilter == GalleryFilter.ALL) null else uiState.activeFilter.label,
             )
         } else {
             Box(
@@ -153,15 +285,35 @@ fun GalleryScreen(
                                 )
                             }
                         },
-                    contentPadding = PaddingValues(8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                    contentPadding = PaddingValues(
+                        start = 0.dp,
+                        end = 18.dp,
+                        top = 4.dp,
+                        bottom = 24.dp,
+                    ),
+                    horizontalArrangement = Arrangement.spacedBy(3.dp),
+                    verticalArrangement = Arrangement.spacedBy(3.dp),
                 ) {
-                    groupedEntries.forEach { (dateLabel, items) ->
-                        item(key = dateLabel, span = { GridItemSpan(maxLineSpan) }) {
-                            DateHeader(dateLabel)
+                    groupedEntries.forEach { (dateLabel, location, items) ->
+                        item(
+                            key = "header-$dateLabel",
+                            span = { GridItemSpan(maxLineSpan) },
+                        ) {
+                            DateHeader(
+                                date = dateLabel,
+                                location = location,
+                                count = items.size,
+                                modifier = Modifier.animateItem(
+                                    fadeInSpec = GalleryMotion.Medium,
+                                    placementSpec = GalleryMotion.Placement,
+                                    fadeOutSpec = GalleryMotion.Fast,
+                                ),
+                            )
                         }
-                        items(items = items, key = { it.id }) { media ->
+                        items(
+                            items = items,
+                            key = { it.id },
+                        ) { media ->
                             MediaThumbnail(
                                 media = media,
                                 isSelected = uiState.selectedIds.contains(media.id),
@@ -170,6 +322,12 @@ fun GalleryScreen(
                                     else onMediaClick(media.id)
                                 },
                                 onLongClick = { viewModel.toggleSelection(media.id) },
+                                cornerRadius = 8,
+                                modifier = Modifier.animateItem(
+                                    fadeInSpec = GalleryMotion.Medium,
+                                    placementSpec = GalleryMotion.Placement,
+                                    fadeOutSpec = GalleryMotion.Fast,
+                                ),
                             )
                         }
                     }
@@ -179,10 +337,16 @@ fun GalleryScreen(
                     DateTimelineScrubber(
                         sections = timelineSections,
                         activeIndex = activeTimelineIndex,
+                        isGridScrolling = gridState.isScrollInProgress,
                         modifier = Modifier.align(Alignment.CenterEnd),
-                        onScrubTo = { sectionIndex ->
+                        onScrubTo = { sectionIndex, animated ->
+                            val target = timelineSections.getOrNull(sectionIndex)?.itemIndex ?: return@DateTimelineScrubber
                             coroutineScope.launch {
-                                gridState.scrollToItem(timelineSections[sectionIndex].itemIndex)
+                                if (animated) {
+                                    gridState.animateScrollToItem(target)
+                                } else {
+                                    gridState.scrollToItem(target)
+                                }
                             }
                         },
                     )
@@ -209,18 +373,41 @@ private data class TimelineSection(
 )
 
 @Composable
-private fun DateHeader(date: String) {
-    Box(
-        modifier = Modifier
+private fun DateHeader(date: String, location: String, count: Int, modifier: Modifier = Modifier) {
+    Row(
+        modifier = modifier
             .fillMaxWidth()
-            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.95f))
-            .padding(horizontal = 16.dp, vertical = 8.dp),
+            .padding(horizontal = 16.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.Bottom,
+        horizontalArrangement = Arrangement.SpaceBetween,
     ) {
+        Row(
+            verticalAlignment = Alignment.Bottom,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.weight(1f),
+        ) {
+            Text(
+                text = date.uppercase(Locale.getDefault()),
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface,
+                letterSpacing = 0.03.em,
+            )
+            if (location.isNotBlank()) {
+                Text(
+                    text = location.uppercase(Locale.getDefault()),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    letterSpacing = 0.12.em,
+                    maxLines = 1,
+                )
+            }
+        }
         Text(
-            text = date,
-            style = MaterialTheme.typography.titleSmall,
-            fontWeight = FontWeight.SemiBold,
-            color = MaterialTheme.colorScheme.onSurface,
+            text = "$count ITEMS",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            letterSpacing = 0.12.em,
         )
     }
 }
@@ -229,41 +416,77 @@ private fun DateHeader(date: String) {
 private fun DateTimelineScrubber(
     sections: List<TimelineSection>,
     activeIndex: Int,
+    isGridScrolling: Boolean,
     modifier: Modifier = Modifier,
-    onScrubTo: (Int) -> Unit,
+    onScrubTo: (sectionIndex: Int, animated: Boolean) -> Unit,
 ) {
     var railHeightPx by remember { mutableIntStateOf(1) }
     var isDragging by remember { mutableStateOf(false) }
     var previewIndex by remember { mutableIntStateOf(activeIndex) }
-    val shownIndex = if (isDragging) previewIndex else activeIndex
-    val fraction = if (sections.size == 1) 0f else shownIndex.toFloat() / (sections.lastIndex).toFloat()
+    var keepVisible by remember { mutableStateOf(false) }
 
-    fun updateSection(offsetY: Float) {
-        if (railHeightPx <= 0) return
-        val index = ((offsetY / railHeightPx) * sections.lastIndex)
-            .roundToInt()
-            .coerceIn(0, sections.lastIndex)
-        if (previewIndex != index) {
+    LaunchedEffect(activeIndex, isDragging) {
+        if (!isDragging) previewIndex = activeIndex
+    }
+
+    LaunchedEffect(isDragging, isGridScrolling) {
+        if (isDragging || isGridScrolling) {
+            keepVisible = true
+        } else {
+            delay(900)
+            keepVisible = false
+        }
+    }
+
+    val shownIndex = previewIndex.coerceIn(0, sections.lastIndex)
+    val targetFraction = if (sections.size == 1) 0f else shownIndex.toFloat() / sections.lastIndex.toFloat()
+    val animatedFraction by animateFloatAsState(
+        targetValue = targetFraction,
+        animationSpec = if (isDragging) tween(0) else GalleryMotion.Fast,
+        label = "scrubberFraction",
+    )
+    val fraction = if (isDragging) targetFraction else animatedFraction
+    val emphasis by animateFloatAsState(
+        targetValue = if (isDragging || keepVisible) 1f else 0.38f,
+        animationSpec = GalleryMotion.Medium,
+        label = "scrubberEmphasis",
+    )
+
+    val density = LocalDensity.current
+    val thumbHeightPx = with(density) { 22.dp.toPx() }
+    val trackColor = MaterialTheme.colorScheme.onSurface
+    val accent = MaterialTheme.colorScheme.primary
+
+    fun indexForY(offsetY: Float): Int {
+        if (railHeightPx <= 0 || sections.size <= 1) return 0
+        val travel = (railHeightPx - thumbHeightPx).coerceAtLeast(1f)
+        val y = (offsetY - thumbHeightPx / 2f).coerceIn(0f, travel)
+        return ((y / travel) * sections.lastIndex).roundToInt().coerceIn(0, sections.lastIndex)
+    }
+
+    fun jumpTo(offsetY: Float, animated: Boolean) {
+        val index = indexForY(offsetY)
+        if (previewIndex != index || animated) {
             previewIndex = index
-            onScrubTo(index)
+            onScrubTo(index, animated)
         }
     }
 
     Box(
         modifier = modifier
             .fillMaxHeight()
-            .width(76.dp)
-            .padding(vertical = 12.dp, horizontal = 6.dp)
+            .width(56.dp)
+            .padding(vertical = 20.dp)
             .onSizeChanged { railHeightPx = it.height }
             .pointerInput(sections) {
                 detectVerticalDragGestures(
                     onDragStart = {
                         isDragging = true
-                        updateSection(it.y)
+                        jumpTo(it.y, animated = false)
                     },
                     onVerticalDrag = { change, _ ->
                         change.consume()
-                        updateSection(change.position.y)
+                        jumpTo(change.position.y, animated = false)
                     },
                     onDragEnd = { isDragging = false },
                     onDragCancel = { isDragging = false },
@@ -271,59 +494,89 @@ private fun DateTimelineScrubber(
             }
             .pointerInput(sections) {
                 detectTapGestures { offset ->
-                    isDragging = true
-                    updateSection(offset.y)
-                    isDragging = false
+                    jumpTo(offset.y, animated = true)
                 }
             },
     ) {
+        val tickStep = when {
+            sections.size <= 12 -> 1
+            sections.size <= 36 -> 2
+            else -> (sections.size / 18).coerceAtLeast(3)
+        }
+
         Box(
             modifier = Modifier
                 .align(Alignment.CenterEnd)
-                .width(4.dp)
+                .padding(end = 10.dp)
+                .width(10.dp)
                 .fillMaxHeight()
-                .clip(CircleShape)
-                .background(MaterialTheme.colorScheme.outline.copy(alpha = 0.22f)),
+                .graphicsLayer { alpha = emphasis }
+                .drawBehind {
+                    val trackX = size.width / 2f
+                    val trackWidth = 2.dp.toPx()
+                    drawRoundRect(
+                        color = trackColor.copy(alpha = 0.16f),
+                        topLeft = Offset(trackX - trackWidth / 2f, 0f),
+                        size = Size(trackWidth, size.height),
+                        cornerRadius = CornerRadius(trackWidth, trackWidth),
+                    )
+                    val travel = (size.height - thumbHeightPx).coerceAtLeast(1f)
+                    sections.indices.forEach { i ->
+                        if (i % tickStep != 0 && i != sections.lastIndex) return@forEach
+                        val y = thumbHeightPx / 2f + travel * (i.toFloat() / sections.lastIndex.coerceAtLeast(1))
+                        val tickW = if (i == shownIndex) 6.dp.toPx() else 3.dp.toPx()
+                        drawRoundRect(
+                            color = trackColor.copy(alpha = if (i == shownIndex) 0.45f else 0.18f),
+                            topLeft = Offset(trackX - tickW / 2f, y - 0.75.dp.toPx()),
+                            size = Size(tickW, 1.5.dp.toPx()),
+                            cornerRadius = CornerRadius(1.dp.toPx(), 1.dp.toPx()),
+                        )
+                    }
+                },
         )
+
         Box(
             modifier = Modifier
                 .align(Alignment.TopEnd)
+                .padding(end = 7.dp)
                 .offset {
                     IntOffset(
                         x = 0,
-                        y = ((railHeightPx - 24.dp.roundToPx()) * fraction).roundToInt(),
+                        y = ((railHeightPx - thumbHeightPx) * fraction).roundToInt(),
                     )
                 }
-                .size(24.dp)
-                .clip(CircleShape)
-                .background(MaterialTheme.colorScheme.primary)
-                .border(3.dp, MaterialTheme.colorScheme.surface, CircleShape),
+                .graphicsLayer { alpha = 0.35f + emphasis * 0.65f }
+                .size(width = 16.dp, height = 22.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(accent.copy(alpha = 0.92f)),
         )
 
         AnimatedVisibility(
             visible = isDragging,
-            enter = fadeIn(),
-            exit = fadeOut(),
+            enter = fadeIn(GalleryMotion.Fast) + scaleIn(initialScale = 0.92f),
+            exit = fadeOut(GalleryMotion.Fast) + scaleOut(targetScale = 0.92f),
             modifier = Modifier
                 .align(Alignment.TopStart)
+                .padding(end = 22.dp)
                 .offset {
                     IntOffset(
                         x = 0,
-                        y = ((railHeightPx - 48.dp.roundToPx()) * fraction).roundToInt(),
+                        y = ((railHeightPx - 36.dp.roundToPx()) * fraction).roundToInt(),
                     )
                 },
         ) {
             Surface(
-                shape = RoundedCornerShape(16.dp),
-                color = MaterialTheme.colorScheme.surface,
-                tonalElevation = 8.dp,
-                shadowElevation = 8.dp,
+                shape = RoundedCornerShape(8.dp),
+                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f),
+                tonalElevation = 2.dp,
+                shadowElevation = 4.dp,
             ) {
                 Text(
                     text = sections[shownIndex].label,
-                    style = MaterialTheme.typography.labelLarge,
+                    style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
+                    maxLines = 1,
                 )
             }
         }
@@ -344,7 +597,6 @@ private suspend fun PointerInputScope.detectGridPinch(
                     onColumnChange(currentColumns - 1)
                     changedColumns = true
                 }
-
                 zoom < 0.92f && currentColumns < maxColumns -> {
                     onColumnChange(currentColumns + 1)
                     changedColumns = true
@@ -354,105 +606,29 @@ private suspend fun PointerInputScope.detectGridPinch(
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
-@Composable
-private fun MediaThumbnail(
-    media: MediaItem,
-    isSelected: Boolean,
-    onClick: () -> Unit,
-    onLongClick: () -> Unit,
-) {
-    Box(
-        modifier = Modifier
-            .aspectRatio(1f)
-            .clip(RoundedCornerShape(4.dp))
-            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
-    ) {
-        AsyncImage(
-            model = ImageRequest.Builder(LocalContext.current)
-                .data(media.uri)
-                .crossfade(true)
-                .size(Size(256, 256))
-                .memoryCachePolicy(CachePolicy.ENABLED)
-                .build(),
-            contentDescription = media.name,
-            contentScale = ContentScale.Crop,
-            modifier = Modifier.fillMaxSize(),
-        )
-        // Video badge
-        if (media.mediaType == MediaType.VIDEO) {
-            VideoBadge(
-                duration = media.duration,
-                modifier = Modifier.align(Alignment.BottomStart),
-            )
-        }
-        // Selection overlay
-        AnimatedVisibility(
-            visible = isSelected,
-            enter = fadeIn(),
-            exit = fadeOut(),
-        ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)),
-            ) {
-                Icon(
-                    Icons.Default.CheckCircle,
-                    contentDescription = null,
-                    tint = Color.White,
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(4.dp)
-                        .size(22.dp),
-                )
-            }
-        }
-        // Favorite star
-        if (media.isFavorite) {
-            Icon(
-                Icons.Default.Star,
-                contentDescription = null,
-                tint = Color(0xFFFFD700),
-                modifier = Modifier
-                    .align(Alignment.TopStart)
-                    .padding(4.dp)
-                    .size(16.dp),
-            )
-        }
-    }
-}
-
-@Composable
-private fun VideoBadge(duration: Long, modifier: Modifier = Modifier) {
-    Box(
-        modifier = modifier
-            .padding(4.dp)
-            .background(Color.Black.copy(alpha = 0.6f), RoundedCornerShape(4.dp))
-            .padding(horizontal = 4.dp, vertical = 2.dp),
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-            Icon(Icons.Default.PlayArrow, contentDescription = null, tint = Color.White, modifier = Modifier.size(10.dp))
-            Text(
-                text = DateUtils.formatDuration(duration),
-                color = Color.White,
-                fontSize = 10.sp,
-            )
-        }
-    }
-}
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun SelectionTopBar(count: Int, onClose: () -> Unit, onDelete: () -> Unit) {
     TopAppBar(
-        title = { Text("$count selected") },
+        title = {
+            Text(
+                "$count selected",
+                fontWeight = FontWeight.SemiBold,
+            )
+        },
         navigationIcon = {
-            IconButton(onClick = onClose) { Icon(Icons.Default.Close, contentDescription = "Close") }
+            IconButton(onClick = onClose) {
+                Icon(Icons.Default.Close, contentDescription = "Close")
+            }
         },
         actions = {
-            IconButton(onClick = onDelete) { Icon(Icons.Default.Delete, contentDescription = "Delete") }
+            IconButton(onClick = onDelete) {
+                Icon(Icons.Default.Delete, contentDescription = "Delete")
+            }
         },
+        colors = TopAppBarDefaults.topAppBarColors(
+            containerColor = MaterialTheme.colorScheme.primaryContainer,
+        ),
     )
 }
 
@@ -466,8 +642,11 @@ private fun GridSizeMenu(currentColumns: Int, onColumnChange: (Int) -> Unit) {
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             listOf(2, 3, 4).forEach { cols ->
                 DropdownMenuItem(
-                    text = { Text("$cols columns${if (cols == currentColumns) " ✓" else ""}") },
-                    onClick = { onColumnChange(cols); expanded = false },
+                    text = { Text("$cols columns${if (cols == currentColumns) "  ✓" else ""}") },
+                    onClick = {
+                        onColumnChange(cols)
+                        expanded = false
+                    },
                 )
             }
         }
@@ -485,13 +664,14 @@ private fun GalleryFilterDialog(
         onDismissRequest = onDismiss,
         title = { Text("Sort and filter") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 GalleryFilter.entries.forEach { filter ->
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(12.dp))
-                            .combinedClickable(onClick = { onSelect(filter) }, onLongClick = {}),
+                            .combinedClickable(onClick = { onSelect(filter) }, onLongClick = {})
+                            .padding(vertical = 2.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         RadioButton(
@@ -501,35 +681,14 @@ private fun GalleryFilterDialog(
                         Text(
                             text = filter.label,
                             style = MaterialTheme.typography.bodyLarge,
-                            modifier = Modifier.padding(start = 8.dp),
+                            modifier = Modifier.padding(start = 4.dp),
                         )
                     }
                 }
             }
         },
         confirmButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Close")
-            }
+            TextButton(onClick = onDismiss) { Text("Close") }
         },
     )
-}
-
-@Composable
-private fun EmptyState(
-    modifier: Modifier = Modifier,
-    title: String,
-    subtitle: String? = null,
-) {
-    Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Icon(Icons.Default.Photo, contentDescription = null, modifier = Modifier.size(64.dp), tint = MaterialTheme.colorScheme.outline)
-            Spacer(Modifier.height(16.dp))
-            Text(title, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.outline)
-            if (subtitle != null) {
-                Spacer(Modifier.height(8.dp))
-                Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
-            }
-        }
-    }
 }

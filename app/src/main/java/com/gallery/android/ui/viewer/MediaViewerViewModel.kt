@@ -58,7 +58,13 @@ class MediaViewerViewModel @Inject constructor(
     init {
         viewModelScope.launch {
             getMediaUseCase.getAll().collect { list ->
-                _uiState.update { it.copy(mediaList = list, isLoading = false) }
+                _uiState.update { state ->
+                    state.copy(
+                        mediaList = list,
+                        currentIndex = state.currentIndex.coerceIn(0, list.lastIndex.coerceAtLeast(0)),
+                        isLoading = false,
+                    )
+                }
             }
         }
     }
@@ -68,7 +74,20 @@ class MediaViewerViewModel @Inject constructor(
         if (index >= 0) _uiState.update { it.copy(currentIndex = index) }
     }
 
-    fun setCurrentIndex(index: Int) = _uiState.update { it.copy(currentIndex = index) }
+    fun setCurrentIndex(index: Int) = _uiState.update { state ->
+        val safeIndex = index.coerceIn(0, state.mediaList.lastIndex.coerceAtLeast(0))
+        if (safeIndex == state.currentIndex) {
+            state
+        } else {
+            state.copy(
+                currentIndex = safeIndex,
+                showInfo = false,
+                showOcrPanel = false,
+                ocrText = "",
+                isOcrLoading = false,
+            )
+        }
+    }
 
     fun toggleInfo() = _uiState.update { it.copy(showInfo = !it.showInfo) }
 

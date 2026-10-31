@@ -39,10 +39,15 @@ class PrivateSafeViewModel @Inject constructor(
         viewModelScope.launch {
             dataStore.data.map { prefs -> prefs[PIN_HASH_KEY] ?: "" }.collect { hash ->
                 _uiState.update {
+                    val nextState = when {
+                        hash.isEmpty() -> SafeAuthState.SETTING_PIN
+                        it.authState == SafeAuthState.UNLOCKED -> SafeAuthState.UNLOCKED
+                        else -> SafeAuthState.LOCKED
+                    }
                     it.copy(
                         pinHash = hash,
                         hasPinSet = hash.isNotEmpty(),
-                        authState = if (hash.isEmpty()) SafeAuthState.SETTING_PIN else SafeAuthState.LOCKED,
+                        authState = nextState,
                     )
                 }
             }

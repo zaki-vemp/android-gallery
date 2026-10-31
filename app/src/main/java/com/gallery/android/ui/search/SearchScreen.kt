@@ -1,32 +1,68 @@
 package com.gallery.android.ui.search
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.grid.*
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material.icons.outlined.Clear
+import androidx.compose.material.icons.outlined.Person
+import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.em
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import coil.compose.AsyncImage
-import coil.request.ImageRequest
 import com.gallery.android.domain.model.MediaCategory
+import com.gallery.android.ui.components.ApertureHeader
+import com.gallery.android.ui.components.GalleryEmptyState
+import com.gallery.android.ui.components.GalleryMotion
+import com.gallery.android.ui.components.MediaThumbnail
+import com.gallery.android.ui.components.SectionKicker
+import java.util.Locale
 
-@OptIn(ExperimentalMaterial3Api::class)
+private val SearchChips = listOf(
+    "People" to MediaCategory.PEOPLE,
+    "Places" to MediaCategory.TRAVEL,
+    "Screenshots" to MediaCategory.SCREENSHOTS,
+    "Videos" to MediaCategory.VIDEOS,
+    "Selfies" to MediaCategory.PEOPLE,
+    "Documents" to MediaCategory.DOCUMENTS,
+)
+
+private val PeopleShortcuts = listOf("Aarav", "Meera", "Dev", "Sana")
+
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun SearchScreen(
     onMediaClick: (Long) -> Unit,
@@ -37,171 +73,180 @@ fun SearchScreen(
     val categoryResults by viewModel.categoryResults.collectAsStateWithLifecycle()
     val isLoading by viewModel.isLoading.collectAsStateWithLifecycle()
     val selectedCategory by viewModel.selectedCategory.collectAsStateWithLifecycle()
+    val moments by viewModel.moments.collectAsStateWithLifecycle()
 
     val displayedResults = when {
         selectedCategory != null -> categoryResults
         query.isNotBlank() -> results
         else -> emptyList()
     }
-
-    Column(modifier = Modifier.fillMaxSize().statusBarsPadding()) {
-        OutlinedTextField(
-            value = query,
-            onValueChange = viewModel::onQueryChange,
+    Column(modifier = Modifier.fillMaxSize()) {
+        ApertureHeader(title = "Search", subtitle = "On-device index")
+        Row(
             modifier = Modifier
+                .padding(horizontal = 16.dp)
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 8.dp),
-            placeholder = { Text("Search photos, text in images…") },
-            leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-            trailingIcon = {
-                if (query.isNotEmpty()) {
-                    IconButton(onClick = viewModel::clearQuery) {
-                        Icon(Icons.Default.Clear, contentDescription = "Clear")
-                    }
-                }
-            },
-            singleLine = true,
-            shape = MaterialTheme.shapes.extraLarge,
-        )
-
-        // Always show category row when search is empty (even with a category selected)
-        AnimatedVisibility(
-            visible = query.isBlank(),
-            enter = fadeIn(),
-            exit = fadeOut(),
+                .height(42.dp)
+                .border(1.dp, MaterialTheme.colorScheme.outline, RectangleShape)
+                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.06f))
+                .padding(horizontal = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(9.dp),
         ) {
-            Column {
-                Text(
-                    text = "Browse by Category",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                LazyRow(
-                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    items(viewModel.categories) { category ->
-                        CategoryChip(
-                            category = category,
-                            isSelected = selectedCategory == category,
-                            onClick = {
-                                viewModel.selectCategory(
-                                    if (selectedCategory == category) null else category
-                                )
-                            },
+            Icon(
+                Icons.Outlined.Search,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(16.dp),
+            )
+            BasicTextField(
+                value = query,
+                onValueChange = viewModel::onQueryChange,
+                singleLine = true,
+                cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                textStyle = MaterialTheme.typography.bodyMedium.copy(
+                    color = MaterialTheme.colorScheme.onSurface,
+                ),
+                modifier = Modifier.weight(1f),
+                decorationBox = { inner ->
+                    if (query.isEmpty()) {
+                        Text(
+                            "Beach, July, IMG_48…",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
-                }
-            }
-        }
-
-        if (selectedCategory != null && query.isBlank()) {
-            Text(
-                text = selectedCategory!!.displayName,
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                    inner()
+                },
             )
+            if (query.isNotEmpty()) {
+                Icon(
+                    Icons.Outlined.Clear,
+                    contentDescription = "Clear",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier
+                        .size(16.dp)
+                        .clickable(onClick = viewModel::clearQuery),
+                )
+            }
         }
 
         Box(modifier = Modifier.fillMaxSize()) {
             when {
-                isLoading -> CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
-                displayedResults.isEmpty() && (query.isNotBlank() || selectedCategory != null) -> {
-                    Column(
-                        modifier = Modifier.align(Alignment.Center),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                    ) {
-                        Icon(
-                            Icons.Default.ImageSearch,
-                            contentDescription = null,
-                            modifier = Modifier.size(64.dp),
-                            tint = MaterialTheme.colorScheme.outline,
-                        )
-                        Spacer(Modifier.height(8.dp))
-                        Text(
-                            if (query.isNotBlank()) "No results for \"$query\""
-                            else "No ${selectedCategory?.displayName} found",
-                            color = MaterialTheme.colorScheme.outline,
-                        )
-                    }
-                }
+                isLoading -> CircularProgressIndicator(
+                    modifier = Modifier.align(Alignment.Center),
+                    color = MaterialTheme.colorScheme.primary,
+                    strokeWidth = 2.dp,
+                )
                 displayedResults.isNotEmpty() -> {
                     LazyVerticalGrid(
                         columns = GridCells.Fixed(3),
                         modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(2.dp),
-                        horizontalArrangement = Arrangement.spacedBy(2.dp),
-                        verticalArrangement = Arrangement.spacedBy(2.dp),
+                        contentPadding = PaddingValues(horizontal = 0.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(3.dp),
+                        verticalArrangement = Arrangement.spacedBy(3.dp),
                     ) {
                         items(displayedResults, key = { it.id }) { media ->
-                            AsyncImage(
-                                model = ImageRequest.Builder(LocalContext.current)
-                                    .data(media.uri)
-                                    .crossfade(true)
-                                    .build(),
-                                contentDescription = media.name,
-                                contentScale = ContentScale.Crop,
-                                modifier = Modifier
-                                    .aspectRatio(1f)
-                                    .clip(RoundedCornerShape(4.dp))
-                                    .clickable { onMediaClick(media.id) },
+                            MediaThumbnail(
+                                media = media,
+                                isSelected = false,
+                                onClick = { onMediaClick(media.id) },
+                                cornerRadius = 8,
+                                modifier = Modifier.animateItem(
+                                    fadeInSpec = GalleryMotion.Medium,
+                                    placementSpec = GalleryMotion.Placement,
+                                    fadeOutSpec = GalleryMotion.Fast,
+                                ),
                             )
                         }
                     }
                 }
+                query.isNotBlank() || selectedCategory != null -> {
+                    GalleryEmptyState(
+                        icon = Icons.Outlined.Search,
+                        title = if (query.isNotBlank()) "No results for \"$query\"" else "No matching items",
+                        subtitle = "Try a different search or category",
+                    )
+                }
                 else -> {
-                    Column(
-                        modifier = Modifier.align(Alignment.Center),
-                        horizontalAlignment = Alignment.CenterHorizontally,
+                    LazyVerticalGrid(
+                        columns = GridCells.Fixed(3),
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp),
+                        horizontalArrangement = Arrangement.spacedBy(3.dp),
+                        verticalArrangement = Arrangement.spacedBy(3.dp),
                     ) {
-                        Icon(
-                            Icons.Default.Search,
-                            contentDescription = null,
-                            modifier = Modifier.size(64.dp),
-                            tint = MaterialTheme.colorScheme.outline,
-                        )
-                        Spacer(Modifier.height(8.dp))
-                        Text(
-                            "Search photos, videos and text in images",
-                            color = MaterialTheme.colorScheme.outline,
-                        )
+                        item(span = { GridItemSpan(maxLineSpan) }) {
+                            Column {
+                                FlowRow(
+                                    horizontalArrangement = Arrangement.spacedBy(7.dp),
+                                    verticalArrangement = Arrangement.spacedBy(7.dp),
+                                    modifier = Modifier.padding(top = 14.dp),
+                                ) {
+                                    SearchChips.forEach { (label, category) ->
+                                        val selected = selectedCategory == category && query.isBlank()
+                                        Text(
+                                            text = label.uppercase(Locale.getDefault()),
+                                            style = MaterialTheme.typography.labelSmall,
+                                            letterSpacing = 0.08.em,
+                                            color = if (selected) {
+                                                MaterialTheme.colorScheme.primary
+                                            } else {
+                                                MaterialTheme.colorScheme.onSurfaceVariant
+                                            },
+                                            modifier = Modifier
+                                                .border(
+                                                    1.dp,
+                                                    if (selected) MaterialTheme.colorScheme.primary
+                                                    else MaterialTheme.colorScheme.outline,
+                                                    RectangleShape,
+                                                )
+                                                .clickable { viewModel.selectCategory(category) }
+                                                .padding(horizontal = 11.dp, vertical = 6.dp),
+                                        )
+                                    }
+                                }
+                                SectionKicker("People")
+                                LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    items(PeopleShortcuts) { name ->
+                                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(58.dp)
+                                                    .clip(CircleShape)
+                                                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.22f))
+                                                    .clickable { viewModel.onQueryChange(name) },
+                                                contentAlignment = Alignment.Center,
+                                            ) {
+                                                Icon(
+                                                    Icons.Outlined.Person,
+                                                    contentDescription = name,
+                                                    tint = MaterialTheme.colorScheme.onSurface,
+                                                )
+                                            }
+                                            Spacer(Modifier.height(6.dp))
+                                            Text(
+                                                name,
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            )
+                                        }
+                                    }
+                                }
+                                SectionKicker("Moments")
+                            }
+                        }
+                        items(moments.take(12), key = { it.id }) { media ->
+                            MediaThumbnail(
+                                media = media,
+                                isSelected = false,
+                                onClick = { onMediaClick(media.id) },
+                                cornerRadius = 8,
+                            )
+                        }
                     }
                 }
             }
         }
     }
-}
-
-@Composable
-private fun CategoryChip(
-    category: MediaCategory,
-    isSelected: Boolean,
-    onClick: () -> Unit,
-) {
-    val icon = when (category) {
-        MediaCategory.PEOPLE -> Icons.Default.Person
-        MediaCategory.DOCUMENTS -> Icons.Default.Description
-        MediaCategory.SCREENSHOTS -> Icons.Default.Smartphone
-        MediaCategory.FOOD -> Icons.Default.Restaurant
-        MediaCategory.TRAVEL -> Icons.Default.FlightTakeoff
-        MediaCategory.VIDEOS -> Icons.Default.Videocam
-        MediaCategory.FAVORITES -> Icons.Default.Favorite
-        MediaCategory.OTHERS -> Icons.Default.Photo
-    }
-
-    FilterChip(
-        selected = isSelected,
-        onClick = onClick,
-        label = { Text(category.displayName) },
-        leadingIcon = {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                modifier = Modifier.size(FilterChipDefaults.IconSize),
-            )
-        },
-    )
 }

@@ -1,30 +1,41 @@
 package com.gallery.android.ui.favorites
 
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.grid.*
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.FavoriteBorder
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
-import coil.compose.AsyncImage
-import coil.request.ImageRequest
 import com.gallery.android.domain.model.MediaItem
 import com.gallery.android.domain.usecase.FavoriteMediaUseCase
+import com.gallery.android.ui.components.GalleryEmptyState
+import com.gallery.android.ui.components.GalleryMotion
+import com.gallery.android.ui.components.MediaThumbnail
 import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.stateIn
 import javax.inject.Inject
 
 @HiltViewModel
@@ -49,36 +60,44 @@ fun FavoritesScreen(
             TopAppBar(
                 title = { Text("Favorites", fontWeight = FontWeight.Bold) },
                 navigationIcon = {
-                    IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, contentDescription = "Back") }
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    }
                 },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
+                ),
             )
-        }
+        },
     ) { padding ->
         if (favorites.isEmpty()) {
-            Box(modifier = Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(Icons.Default.FavoriteBorder, contentDescription = null, modifier = Modifier.size(64.dp), tint = MaterialTheme.colorScheme.outline)
-                    Spacer(Modifier.height(16.dp))
-                    Text("No favorites yet", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.outline)
-                }
-            }
+            GalleryEmptyState(
+                icon = Icons.Default.FavoriteBorder,
+                title = "No favorites yet",
+                subtitle = "Tap the heart on a photo to save it here",
+                modifier = Modifier.padding(padding),
+            )
         } else {
             LazyVerticalGrid(
                 columns = GridCells.Fixed(3),
-                modifier = Modifier.fillMaxSize().padding(padding),
-                contentPadding = PaddingValues(2.dp),
-                horizontalArrangement = Arrangement.spacedBy(2.dp),
-                verticalArrangement = Arrangement.spacedBy(2.dp),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding),
+                contentPadding = PaddingValues(6.dp),
+                horizontalArrangement = Arrangement.spacedBy(3.dp),
+                verticalArrangement = Arrangement.spacedBy(3.dp),
             ) {
                 items(favorites, key = { it.id }) { media ->
-                    AsyncImage(
-                        model = ImageRequest.Builder(LocalContext.current).data(media.uri).crossfade(true).build(),
-                        contentDescription = media.name,
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier
-                            .aspectRatio(1f)
-                            .clip(RoundedCornerShape(4.dp))
-                            .clickable { onMediaClick(media.id) },
+                    MediaThumbnail(
+                        media = media,
+                        isSelected = false,
+                        onClick = { onMediaClick(media.id) },
+                        cornerRadius = 8,
+                        modifier = Modifier.animateItem(
+                            fadeInSpec = GalleryMotion.Medium,
+                            placementSpec = GalleryMotion.Placement,
+                            fadeOutSpec = GalleryMotion.Fast,
+                        ),
                     )
                 }
             }

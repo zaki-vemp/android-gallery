@@ -1,14 +1,39 @@
 package com.gallery.android.ui.trash
 
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.grid.*
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.DeleteForever
+import androidx.compose.material.icons.filled.Restore
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
@@ -23,8 +48,13 @@ import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.gallery.android.domain.model.MediaItem
 import com.gallery.android.domain.usecase.MoveToTrashUseCase
+import com.gallery.android.ui.components.GalleryEmptyState
+import com.gallery.android.ui.components.GalleryMotion
+import com.gallery.android.ui.components.scaleOnPress
 import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -52,41 +82,51 @@ fun TrashScreen(
             TopAppBar(
                 title = { Text("Recently Deleted", fontWeight = FontWeight.Bold) },
                 navigationIcon = {
-                    IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, contentDescription = "Back") }
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    }
                 },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
+                ),
             )
-        }
+        },
     ) { padding ->
-        Column(modifier = Modifier.fillMaxSize().padding(padding)) {
-            if (items.isNotEmpty()) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding),
+        ) {
+            if (items.isEmpty()) {
+                GalleryEmptyState(
+                    icon = Icons.Default.Delete,
+                    title = "Trash is empty",
+                    subtitle = "Deleted items stay here for 30 days",
+                )
+            } else {
                 Text(
                     "Items are permanently deleted after 30 days",
-                    modifier = Modifier.padding(16.dp),
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.outline,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-            }
-            if (items.isEmpty()) {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(64.dp), tint = MaterialTheme.colorScheme.outline)
-                        Spacer(Modifier.height(16.dp))
-                        Text("Trash is empty", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.outline)
-                    }
-                }
-            } else {
                 LazyVerticalGrid(
                     columns = GridCells.Fixed(3),
                     modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(2.dp),
-                    horizontalArrangement = Arrangement.spacedBy(2.dp),
-                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                    contentPadding = PaddingValues(6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(3.dp),
+                    verticalArrangement = Arrangement.spacedBy(3.dp),
                 ) {
                     items(items, key = { it.id }) { media ->
                         TrashItem(
                             media = media,
                             onRestore = { viewModel.restore(media.id) },
                             onDelete = { viewModel.deletePermanently(media.id) },
+                            modifier = Modifier.animateItem(
+                                fadeInSpec = GalleryMotion.Medium,
+                                placementSpec = GalleryMotion.Placement,
+                                fadeOutSpec = GalleryMotion.Fast,
+                            ),
                         )
                     }
                 }
@@ -95,17 +135,30 @@ fun TrashScreen(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun TrashItem(media: MediaItem, onRestore: () -> Unit, onDelete: () -> Unit) {
+private fun TrashItem(
+    media: MediaItem,
+    onRestore: () -> Unit,
+    onDelete: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
     var showMenu by remember { mutableStateOf(false) }
     Box(
-        modifier = Modifier
+        modifier = modifier
             .aspectRatio(1f)
-            .clip(RoundedCornerShape(4.dp))
-            .clickable { showMenu = true }
+            .scaleOnPress(0.95f)
+            .clip(RoundedCornerShape(8.dp))
+            .combinedClickable(
+                onClick = { showMenu = true },
+                onLongClick = { showMenu = true },
+            ),
     ) {
         AsyncImage(
-            model = ImageRequest.Builder(LocalContext.current).data(media.uri).crossfade(true).build(),
+            model = ImageRequest.Builder(LocalContext.current)
+                .data(media.uri)
+                .crossfade(220)
+                .build(),
             contentDescription = media.name,
             contentScale = ContentScale.Crop,
             modifier = Modifier.fillMaxSize(),
@@ -113,12 +166,18 @@ private fun TrashItem(media: MediaItem, onRestore: () -> Unit, onDelete: () -> U
         DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
             DropdownMenuItem(
                 text = { Text("Restore") },
-                onClick = { onRestore(); showMenu = false },
+                onClick = {
+                    onRestore()
+                    showMenu = false
+                },
                 leadingIcon = { Icon(Icons.Default.Restore, contentDescription = null) },
             )
             DropdownMenuItem(
                 text = { Text("Delete permanently") },
-                onClick = { onDelete(); showMenu = false },
+                onClick = {
+                    onDelete()
+                    showMenu = false
+                },
                 leadingIcon = { Icon(Icons.Default.DeleteForever, contentDescription = null) },
             )
         }

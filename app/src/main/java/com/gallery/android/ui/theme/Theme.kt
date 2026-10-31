@@ -1,7 +1,6 @@
 package com.gallery.android.ui.theme
 
 import android.app.Activity
-import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
@@ -10,42 +9,38 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
 
-private val LightColorScheme = lightColorScheme(
-    primary = PrimaryLight,
-    onPrimary = OnPrimaryLight,
-    primaryContainer = PrimaryContainerLight,
-    onPrimaryContainer = OnPrimaryContainerLight,
-    secondary = SecondaryLight,
-    onSecondary = OnSecondaryLight,
-    secondaryContainer = SecondaryContainerLight,
-    tertiary = TertiaryLight,
-    surface = SurfaceLight,
-    background = BackgroundLight,
-    onBackground = InkLight,
-    onSurface = InkLight,
-    surfaceVariant = SurfaceVariantLight,
-    onSurfaceVariant = InkMutedLight,
-    outline = OutlineLight,
-    outlineVariant = OutlineVariantLight,
+private val WireframeDarkColorScheme = darkColorScheme(
+    primary = WireframeDarkAccent,
+    onPrimary = Color.Black,
+    primaryContainer = WireframeDarkChip,
+    onPrimaryContainer = WireframeDarkAccent,
+    secondary = WireframeDarkDim,
+    onSecondary = WireframeDarkText,
+    surface = WireframeDarkSurface,
+    background = WireframeDarkBg,
+    onBackground = WireframeDarkText,
+    onSurface = WireframeDarkText,
+    surfaceVariant = WireframeDarkSurface,
+    onSurfaceVariant = WireframeDarkDim,
+    outline = WireframeDarkLine,
+    outlineVariant = WireframeDarkLine,
 )
 
-private val DarkColorScheme = darkColorScheme(
-    primary = PrimaryDark,
-    onPrimary = OnPrimaryDark,
-    primaryContainer = PrimaryContainerDark,
-    onPrimaryContainer = OnPrimaryContainerDark,
-    secondary = SecondaryDark,
-    onSecondary = OnSecondaryDark,
-    secondaryContainer = SecondaryContainerDark,
-    tertiary = TertiaryDark,
-    surface = SurfaceDark,
-    background = BackgroundDark,
-    onBackground = InkDark,
-    onSurface = InkDark,
-    surfaceVariant = SurfaceVariantDark,
-    onSurfaceVariant = InkMutedDark,
-    outline = OutlineDark,
-    outlineVariant = OutlineVariantDark,
+private val WireframeLightColorScheme = lightColorScheme(
+    primary = WireframeLightAccent,
+    onPrimary = Color.White,
+    primaryContainer = WireframeLightChip,
+    onPrimaryContainer = WireframeLightAccent,
+    secondary = WireframeLightDim,
+    onSecondary = WireframeLightText,
+    surface = WireframeLightSurface,
+    background = WireframeLightBg,
+    onBackground = WireframeLightText,
+    onSurface = WireframeLightText,
+    surfaceVariant = WireframeLightSurface,
+    onSurfaceVariant = WireframeLightDim,
+    outline = WireframeLightLine,
+    outlineVariant = WireframeLightLine,
 )
 
 @Composable
@@ -54,14 +49,7 @@ fun GalleryTheme(
     dynamicColor: Boolean = false,
     content: @Composable () -> Unit,
 ) {
-    val colorScheme = when {
-        dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
-            val ctx = androidx.compose.ui.platform.LocalContext.current
-            if (darkTheme) dynamicDarkColorScheme(ctx) else dynamicLightColorScheme(ctx)
-        }
-        darkTheme -> DarkColorScheme
-        else -> LightColorScheme
-    }
+    val colorScheme = if (darkTheme) WireframeDarkColorScheme else WireframeLightColorScheme
 
     val view = LocalView.current
     if (!view.isInEditMode) {
@@ -70,8 +58,14 @@ fun GalleryTheme(
             WindowCompat.setDecorFitsSystemWindows(window, false)
             val insetsController = WindowCompat.getInsetsController(window, view)
             insetsController.isAppearanceLightStatusBars = !darkTheme
+            insetsController.isAppearanceLightNavigationBars = !darkTheme
         }
     }
 
-    MaterialTheme(colorScheme = colorScheme, typography = Typography, content = content)
+    MaterialTheme(
+        colorScheme = colorScheme,
+        typography = Typography,
+        shapes = GalleryShapes,
+        content = content,
+    )
 }

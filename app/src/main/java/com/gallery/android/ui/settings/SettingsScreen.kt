@@ -1,14 +1,34 @@
 package com.gallery.android.ui.settings
 
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
+import androidx.compose.material.icons.filled.DarkMode
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material3.CenterAlignedTopAppBar
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.ListItemDefaults
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Switch
+import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -16,18 +36,29 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsScreen(viewModel: SettingsViewModel = hiltViewModel()) {
+fun SettingsScreen(
+    onBack: () -> Unit = {},
+    viewModel: SettingsViewModel = hiltViewModel(),
+) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
 
-    Scaffold(
-        topBar = {
-            CenterAlignedTopAppBar(title = { Text("Settings", fontWeight = FontWeight.Bold) })
-        }
-    ) { padding ->
+    Column(modifier = Modifier.fillMaxSize()) {
+        com.gallery.android.ui.components.ApertureHeader(
+            title = "Settings",
+            subtitle = "Appearance · grid",
+            actions = {
+                com.gallery.android.ui.components.HairlineChip(onClick = onBack) {
+                    Text(
+                        "BACK",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            },
+        )
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding)
                 .verticalScroll(rememberScrollState()),
         ) {
             SettingsSectionHeader("Appearance")
@@ -45,27 +76,38 @@ fun SettingsScreen(viewModel: SettingsViewModel = hiltViewModel()) {
                 checked = uiState.useDynamicColor,
                 onCheckedChange = viewModel::setDynamicColor,
             )
-            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+            HorizontalDivider(
+                modifier = Modifier.padding(vertical = 8.dp, horizontal = 16.dp),
+                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f),
+            )
             SettingsSectionHeader("Grid")
-            Column(modifier = Modifier.padding(horizontal = 16.dp)) {
-                Text("Grid columns: ${uiState.gridColumns}", style = MaterialTheme.typography.bodyMedium)
-                Spacer(Modifier.height(8.dp))
+            Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
+                Text(
+                    "Grid columns: ${uiState.gridColumns}",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                Spacer(Modifier.height(10.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     listOf(2, 3, 4).forEach { cols ->
                         FilterChip(
                             selected = uiState.gridColumns == cols,
                             onClick = { viewModel.setGridColumns(cols) },
                             label = { Text("$cols") },
+                            shape = MaterialTheme.shapes.large,
                         )
                     }
                 }
             }
-            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+            HorizontalDivider(
+                modifier = Modifier.padding(vertical = 8.dp, horizontal = 16.dp),
+                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f),
+            )
             SettingsSectionHeader("About")
             ListItem(
                 headlineContent = { Text("Version") },
                 supportingContent = { Text("1.0.0") },
                 leadingContent = { Icon(Icons.Default.Info, contentDescription = null) },
+                colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surface),
             )
         }
     }
@@ -75,7 +117,7 @@ fun SettingsScreen(viewModel: SettingsViewModel = hiltViewModel()) {
 private fun SettingsSectionHeader(title: String) {
     Text(
         text = title,
-        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+        modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
         style = MaterialTheme.typography.labelLarge,
         color = MaterialTheme.colorScheme.primary,
         fontWeight = FontWeight.SemiBold,
@@ -84,7 +126,7 @@ private fun SettingsSectionHeader(title: String) {
 
 @Composable
 private fun SettingsToggleRow(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    icon: ImageVector,
     title: String,
     subtitle: String,
     checked: Boolean,
@@ -92,9 +134,13 @@ private fun SettingsToggleRow(
 ) {
     ListItem(
         headlineContent = { Text(title) },
-        supportingContent = { Text(subtitle, color = MaterialTheme.colorScheme.outline) },
+        supportingContent = {
+            Text(subtitle, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        },
         leadingContent = { Icon(icon, contentDescription = null) },
-        trailingContent = { Switch(checked = checked, onCheckedChange = onCheckedChange) },
-        modifier = Modifier.padding(horizontal = 0.dp),
+        trailingContent = {
+            Switch(checked = checked, onCheckedChange = onCheckedChange)
+        },
+        colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surface),
     )
 }
