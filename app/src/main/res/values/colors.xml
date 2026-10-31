@@ -2,8 +2,10 @@
 <resources>
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>
-    <color name="primary">#FF6750A4</color>
-    <color name="primary_dark">#FF21005D</color>
-    <color name="surface">#FFFDFCFF</color>
-    <color name="surface_dark">#FF1C1B1F</color>
+    <color name="primary">#FF2E7A94</color>
+    <color name="primary_dark">#FF6EC4D6</color>
+    <color name="surface">#FFF3F6F8</color>
+    <color name="surface_dark">#FF0B1014</color>
+    <color name="ic_launcher_background">#FF12303A</color>
+    <color name="window_background">#FFF3F6F8</color>
 </resources>

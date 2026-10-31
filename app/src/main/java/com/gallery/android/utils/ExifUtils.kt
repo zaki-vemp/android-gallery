@@ -3,7 +3,7 @@ package com.gallery.android.utils
 import android.content.Context
 import android.media.ExifInterface
 import android.net.Uri
-import java.io.InputStream
+import com.gallery.android.nativeengine.NativeMediaEngine
 
 data class ExifInfo(
     val make: String? = null,
@@ -23,6 +23,40 @@ data class ExifInfo(
 object ExifUtils {
 
     fun getExifInfo(context: Context, uri: Uri): ExifInfo {
+        val native = parseNative(context, uri)
+        if (native != null && (native.make != null || native.model != null || native.width > 0 || native.iso != null)) {
+            return native
+        }
+        return parsePlatform(context, uri)
+    }
+
+    private fun parseNative(context: Context, uri: Uri): ExifInfo? {
+        if (!NativeMediaEngine.isAvailable) return null
+        return runCatching {
+            val bytes = context.contentResolver.openInputStream(uri)?.use { input ->
+                val buffer = ByteArray(128 * 1024)
+                val read = input.read(buffer)
+                if (read <= 0) ByteArray(0) else buffer.copyOf(read)
+            } ?: return null
+            val fields = NativeMediaEngine.parseExif(bytes) ?: return null
+            ExifInfo(
+                make = fields.getOrNull(0),
+                model = fields.getOrNull(1),
+                aperture = fields.getOrNull(2),
+                focalLength = fields.getOrNull(3),
+                iso = fields.getOrNull(4),
+                exposureTime = fields.getOrNull(5),
+                flash = fields.getOrNull(6),
+                width = fields.getOrNull(7)?.toIntOrNull() ?: 0,
+                height = fields.getOrNull(8)?.toIntOrNull() ?: 0,
+                dateTime = fields.getOrNull(9),
+                latitude = fields.getOrNull(10)?.toDoubleOrNull(),
+                longitude = fields.getOrNull(11)?.toDoubleOrNull(),
+            )
+        }.getOrNull()
+    }
+
+    private fun parsePlatform(context: Context, uri: Uri): ExifInfo {
         return runCatching {
             context.contentResolver.openInputStream(uri)?.use { inputStream ->
                 val exif = ExifInterface(inputStream)

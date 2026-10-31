@@ -15,6 +15,7 @@ import android.provider.MediaStore
 import android.util.Rational
 import androidx.compose.animation.*
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -28,6 +29,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.PagerDefaults
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -91,6 +93,8 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import me.saket.telephoto.zoomable.EnabledZoomGestures
+import me.saket.telephoto.zoomable.OverzoomEffect
+import me.saket.telephoto.zoomable.ZoomSpec
 import me.saket.telephoto.zoomable.coil.ZoomableAsyncImage
 import me.saket.telephoto.zoomable.rememberZoomableImageState
 import me.saket.telephoto.zoomable.rememberZoomableState
@@ -125,38 +129,57 @@ fun MediaViewerScreen(
 
     // Single swipe-down-to-dismiss path
     var dragOffsetY by remember { mutableFloatStateOf(0f) }
-    val dismissThreshold = with(LocalDensity.current) { 140.dp.toPx() }
+    val density = LocalDensity.current
+    val configuration = androidx.compose.ui.platform.LocalConfiguration.current
+    val dismissThreshold = with(density) { 140.dp.toPx() }
+    val dismissDistance = with(density) { configuration.screenHeightDp.dp.toPx() * 1.08f }
     var isDismissing by remember { mutableStateOf(false) }
     var isSnappingBack by remember { mutableStateOf(false) }
-    val animatedOffsetY = remember { Animatable(0f) }
-
-    val currentOffsetY = if (isSnappingBack) animatedOffsetY.value else dragOffsetY
-    val dismissProgress = (abs(currentOffsetY) / dismissThreshold).coerceIn(0f, 1f)
-    val backgroundAlpha = 1f - dismissProgress * 0.55f
-    val contentScale = 1f - dismissProgress * 0.12f
+    var isVerticalDragging by remember { mutableStateOf(false) }
 
     LaunchedEffect(isSnappingBack) {
         if (isSnappingBack) {
-            animatedOffsetY.snapTo(dragOffsetY)
-            animatedOffsetY.animateTo(0f, tween(220))
+            Animatable(dragOffsetY).animateTo(
+                targetValue = 0f,
+                animationSpec = tween(durationMillis = 380, easing = FastOutSlowInEasing),
+            ) {
+                dragOffsetY = value
+            }
             dragOffsetY = 0f
             isSnappingBack = false
         }
+    }
+
+    LaunchedEffect(isDismissing) {
+        if (isDismissing) {
+            Animatable(dragOffsetY).animateTo(
+                targetValue = dismissDistance,
+                animationSpec = tween(durationMillis = 360, easing = FastOutSlowInEasing),
+            ) {
+                dragOffsetY = value
+            }
+            onBack()
+        }
+    }
+
+    LaunchedEffect(initialMediaId) {
+        viewModel.open(initialMediaId)
     }
 
     val pagerState = rememberPagerState(
         initialPage = 0,
         pageCount = { uiState.mediaList.size },
     )
+    val pagerFlingBehavior = PagerDefaults.flingBehavior(
+        state = pagerState,
+        snapAnimationSpec = tween(durationMillis = 460, easing = FastOutSlowInEasing),
+    )
     val previewListState = rememberLazyListState()
-
-    // Scroll to the clicked image once the list is loaded
-    LaunchedEffect(initialMediaId, uiState.mediaList) {
+    remember(initialMediaId, uiState.mediaList.size) {
         if (uiState.mediaList.isNotEmpty()) {
-            val index = uiState.mediaList.indexOfFirst { it.id == initialMediaId }
-            if (index >= 0) {
-                pagerState.scrollToPage(index)
-            }
+            pagerState.requestScrollToPage(
+                uiState.currentIndex.coerceIn(0, uiState.mediaList.lastIndex),
+            )
         }
     }
 
@@ -168,54 +191,101 @@ fun MediaViewerScreen(
         }
     }
 
-    LaunchedEffect(pagerState.settledPage, uiState.mediaList.size) {
+    LaunchedEffect(pagerState.settledPage) {
         if (uiState.mediaList.isNotEmpty()) {
-            val targetIndex = (pagerState.settledPage - 1).coerceAtLeast(0)
-            previewListState.animateScrollToItem(targetIndex)
+            previewListState.scrollToItem(0)
         }
     }
 
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(viewerBackground.copy(alpha = backgroundAlpha)),
+            .background(Color.Black),
     ) {
-        val currentMedia = viewModel.currentMedia()
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer {
+                    val dismissProgress = (dragOffsetY / dismissThreshold).coerceIn(0f, 1f)
+                    alpha = 1f - dismissProgress * 0.55f
+                }
+                .background(viewerBackground),
+        )
+        val currentMedia = viewModel.currentMedia() ?: uiState.preview
 
         if (uiState.mediaList.isEmpty()) {
-            CircularProgressIndicator(modifier = Modifier.align(Alignment.Center), color = Color.White)
+            val preview = uiState.preview
+            if (preview != null) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .graphicsLayer {
+                            val dismissProgress = (dragOffsetY / dismissThreshold).coerceIn(0f, 1f)
+                            translationY = dragOffsetY
+                            val dismissScale = 1f - dismissProgress * 0.08f
+                            scaleX = dismissScale
+                            scaleY = dismissScale
+                        },
+                ) {
+                    MediaPage(
+                        media = preview,
+                        isCurrentPage = preview.mediaType != MediaType.VIDEO,
+                        onTap = { showControls = !showControls },
+                        onZoomStateChanged = { isZoomed -> canDismissBySwipe = !isZoomed },
+                        bottomInset = 0.dp,
+                        showControls = showControls,
+                        onPrevious = {},
+                        onNext = {},
+                    )
+                }
+            } else {
+                CircularProgressIndicator(modifier = Modifier.align(Alignment.Center), color = Color.White)
+            }
         } else {
             HorizontalPager(
                 state = pagerState,
                 modifier = Modifier
                     .fillMaxSize()
-                    .offset { IntOffset(0, currentOffsetY.roundToInt()) }
                     .graphicsLayer {
-                        scaleX = contentScale
-                        scaleY = contentScale
+                        val dismissProgress = (dragOffsetY / dismissThreshold).coerceIn(0f, 1f)
+                        translationY = dragOffsetY
+                        val dismissScale = 1f - dismissProgress * 0.1f
+                        scaleX = dismissScale
+                        scaleY = dismissScale
                     }
                     .then(
                         if (canDismissBySwipe) {
                             Modifier.pointerInput(Unit) {
                                 detectVerticalDragGestures(
+                                    onDragStart = {
+                                        if (!isSnappingBack && !isDismissing) {
+                                            isVerticalDragging = true
+                                        }
+                                    },
                                     onVerticalDrag = { change, dragAmount ->
+                                        if (!isVerticalDragging) return@detectVerticalDragGestures
                                         change.consume()
-                                            // Viewer dismissal is a downward gesture. Upward drags
-                                            // stay with the pager instead of unexpectedly closing it.
-                                            dragOffsetY = (dragOffsetY + dragAmount).coerceAtLeast(0f)
-                                        if (abs(dragOffsetY) > 10f) {
+                                        val nextOffset = (dragOffsetY + dragAmount).coerceAtLeast(0f)
+                                        dragOffsetY = if (nextOffset <= dismissThreshold) {
+                                            nextOffset
+                                        } else {
+                                            dismissThreshold + (nextOffset - dismissThreshold) * 0.45f
+                                        }
+                                        if (dragOffsetY > 10f) {
                                             showControls = false
                                         }
                                     },
                                     onDragEnd = {
-                                        if (abs(dragOffsetY) > dismissThreshold) {
+                                        isVerticalDragging = false
+                                        if (dragOffsetY > dismissThreshold) {
                                             isDismissing = true
-                                        } else if (abs(dragOffsetY) > 1f) {
+                                        } else if (dragOffsetY > 1f) {
                                             isSnappingBack = true
                                         }
                                     },
                                     onDragCancel = {
-                                        if (abs(dragOffsetY) > 1f) {
+                                        isVerticalDragging = false
+                                        if (dragOffsetY > 1f) {
                                             isSnappingBack = true
                                         }
                                     },
@@ -226,24 +296,36 @@ fun MediaViewerScreen(
                         }
                     ),
                 beyondViewportPageCount = 1,
-                userScrollEnabled = !isSnappingBack && abs(dragOffsetY) < 8f,
+                userScrollEnabled = !isSnappingBack && !isVerticalDragging && !isDismissing,
+                flingBehavior = pagerFlingBehavior,
+                key = { page -> uiState.mediaList[page].id },
             ) { page ->
                 val media = uiState.mediaList[page]
                 MediaPage(
                     media = media,
-                    // Adjacent pages remain composed by the pager. Treat no page as active
-                    // while a swipe is in flight so an outgoing video is stopped immediately.
-                    isCurrentPage = page == pagerState.settledPage && !pagerState.isScrollInProgress,
+                    isCurrentPage = page == pagerState.settledPage,
                     onTap = { showControls = !showControls },
                     onZoomStateChanged = { isZoomed -> canDismissBySwipe = !isZoomed },
                     bottomInset = 0.dp,
                     showControls = showControls,
                     onPrevious = {
-                        if (page > 0) coroutineScope.launch { pagerState.animateScrollToPage(page - 1) }
+                        if (page > 0) {
+                            coroutineScope.launch {
+                                pagerState.animateScrollToPage(
+                                    page - 1,
+                                    animationSpec = tween(420, easing = FastOutSlowInEasing),
+                                )
+                            }
+                        }
                     },
                     onNext = {
                         if (page < uiState.mediaList.lastIndex) {
-                            coroutineScope.launch { pagerState.animateScrollToPage(page + 1) }
+                            coroutineScope.launch {
+                                pagerState.animateScrollToPage(
+                                    page + 1,
+                                    animationSpec = tween(420, easing = FastOutSlowInEasing),
+                                )
+                            }
                         }
                     },
                 )
@@ -461,6 +543,9 @@ fun MediaViewerScreen(
             ) {
                 HorizontalDivider(color = viewerLine)
                 if (uiState.mediaList.isNotEmpty()) {
+                    val windowStart = (pagerState.settledPage - 20).coerceAtLeast(0)
+                    val windowEnd = (pagerState.settledPage + 21).coerceAtMost(uiState.mediaList.size)
+                    val previewWindow = uiState.mediaList.subList(windowStart, windowEnd)
                     LazyRow(
                         state = previewListState,
                         horizontalArrangement = Arrangement.spacedBy(5.dp),
@@ -468,26 +553,34 @@ fun MediaViewerScreen(
                         modifier = Modifier.fillMaxWidth().padding(top = 5.dp),
                     ) {
                         itemsIndexed(
-                            items = uiState.mediaList,
+                            items = previewWindow,
                             key = { _, media -> media.id },
-                        ) { index, media ->
+                        ) { windowIndex, media ->
+                            val index = windowStart + windowIndex
                             val isSelected = index == pagerState.settledPage
                             val thumbnailWidth by animateDpAsState(
                                 targetValue = if (isSelected) 52.dp else 38.dp,
                                 animationSpec = tween(200),
                                 label = "viewerThumbnailWidth",
                             )
-                            AsyncImage(
-                                model = ImageRequest.Builder(LocalContext.current)
+                            val thumbnailRequest = remember(media.id, media.uri, media.mediaType) {
+                                ImageRequest.Builder(context)
                                     .data(media.uri)
                                     .apply {
                                         if (media.mediaType == MediaType.VIDEO) {
                                             videoFrameMillis(1_000)
                                         }
                                     }
-                                    .crossfade(120)
+                                    .size(128, 128)
+                                    .crossfade(false)
+                                    .memoryCacheKey("viewer-thumb-${media.id}")
+                                    .diskCacheKey("viewer-thumb-${media.id}")
                                     .memoryCachePolicy(CachePolicy.ENABLED)
-                                    .build(),
+                                    .diskCachePolicy(CachePolicy.ENABLED)
+                                    .build()
+                            }
+                            AsyncImage(
+                                model = thumbnailRequest,
                                 contentDescription = media.name,
                                 contentScale = ContentScale.Crop,
                                 modifier = Modifier
@@ -568,13 +661,6 @@ fun MediaViewerScreen(
                         onClick = { viewModel.moveToTrash(onDone = onBack) },
                     )
                 }
-            }
-        }
-
-        // Dismiss and navigate back
-        LaunchedEffect(isDismissing) {
-            if (isDismissing) {
-                onBack()
             }
         }
 
@@ -709,6 +795,7 @@ private fun MediaPage(
     } else {
         ZoomableImage(
             uri = media.uri,
+            mediaId = media.id,
             name = media.name,
             onTap = onTap,
             isCurrentPage = isCurrentPage,
@@ -746,17 +833,44 @@ private fun VideoPoster(media: MediaItem, onTap: () -> Unit) {
 @Composable
 private fun ZoomableImage(
     uri: Uri,
+    mediaId: Long,
     name: String,
     onTap: () -> Unit,
     isCurrentPage: Boolean,
     onZoomStateChanged: (Boolean) -> Unit,
 ) {
     val context = LocalContext.current
-    val zoomableState = rememberZoomableState()
+    val configuration = androidx.compose.ui.platform.LocalConfiguration.current
+    val density = LocalDensity.current
+    val zoomableState = rememberZoomableState(
+        zoomSpec = ZoomSpec(
+            maxZoomFactor = 6f,
+            minZoomFactor = 1f,
+            overzoomEffect = OverzoomEffect.RubberBanding,
+        ),
+    )
     val zoomableImageState = rememberZoomableImageState(zoomableState)
+    val requestSize = remember(configuration.screenWidthDp, configuration.screenHeightDp, density) {
+        val w = with(density) { configuration.screenWidthDp.dp.roundToPx() }
+        val h = with(density) { configuration.screenHeightDp.dp.roundToPx() }
+        coil.size.Size(w, h)
+    }
+    val imageRequest = remember(uri, mediaId, requestSize) {
+        ImageRequest.Builder(context)
+            .data(uri)
+            .size(requestSize)
+            .crossfade(false)
+            .placeholderMemoryCacheKey("thumb-$mediaId")
+            .memoryCacheKey("viewer-image-$mediaId")
+            .diskCacheKey("viewer-image-$mediaId")
+            .memoryCachePolicy(CachePolicy.ENABLED)
+            .diskCachePolicy(CachePolicy.ENABLED)
+            .build()
+    }
 
     LaunchedEffect(isCurrentPage) {
         if (!isCurrentPage) {
+            zoomableState.resetZoom()
             onZoomStateChanged(false)
         }
     }
@@ -772,11 +886,7 @@ private fun ZoomableImage(
     }
 
     ZoomableAsyncImage(
-        model = ImageRequest.Builder(context)
-            .data(uri)
-            .crossfade(200)
-            .memoryCachePolicy(CachePolicy.ENABLED)
-            .build(),
+        model = imageRequest,
         contentDescription = name,
         modifier = Modifier.fillMaxSize(),
         state = zoomableImageState,
@@ -830,7 +940,7 @@ private fun VideoPlayer(
     val coroutineScope = rememberCoroutineScope()
     val latestIsSeeking by rememberUpdatedState(isSeeking)
 
-    DisposableEffect(exoPlayer, lifecycleOwner) {
+    DisposableEffect(exoPlayer) {
         val listener = object : Player.Listener {
             override fun onIsPlayingChanged(playing: Boolean) { isPlaying = playing }
             override fun onPlaybackStateChanged(playbackState: Int) {
@@ -1075,20 +1185,24 @@ private fun VideoPlayer(
                         )
                     }
 
-                    VideoFilmstripScrubber(
-                        uri = uri,
-                        durationMs = durationMs,
-                        positionMs = activePositionMs,
-                        onPositionChange = { newPosition ->
-                            isSeeking = true
-                            seekPositionMs = newPosition
-                        },
-                        onPositionChangeFinished = {
-                            exoPlayer.seekTo(seekPositionMs)
-                            currentPositionMs = seekPositionMs
-                            isSeeking = false
-                        },
-                    )
+                    if (durationMs > 0L && !isBuffering) {
+                        VideoFilmstripScrubber(
+                            uri = uri,
+                            durationMs = durationMs,
+                            positionMs = activePositionMs,
+                            onPositionChange = { newPosition ->
+                                isSeeking = true
+                                seekPositionMs = newPosition
+                            },
+                            onPositionChangeFinished = {
+                                exoPlayer.seekTo(seekPositionMs)
+                                currentPositionMs = seekPositionMs
+                                isSeeking = false
+                            },
+                        )
+                    } else {
+                        LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                    }
 
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -1237,6 +1351,7 @@ private fun VideoFilmstripScrubber(
 ) {
     val context = LocalContext.current
     val safeDuration = durationMs.coerceAtLeast(1L)
+    val frameCount = 5
 
     Box(
         modifier = Modifier
@@ -1245,11 +1360,13 @@ private fun VideoFilmstripScrubber(
             .clip(RoundedCornerShape(8.dp)),
     ) {
         Row(modifier = Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-            repeat(12) { index ->
+            repeat(frameCount) { index ->
                 val frameRequest = remember(uri, safeDuration, index) {
                     ImageRequest.Builder(context)
                         .data(uri)
-                        .videoFrameMillis((safeDuration * index) / 11L)
+                        .videoFrameMillis((safeDuration * index) / (frameCount - 1L))
+                        .size(160, 96)
+                        .crossfade(false)
                         .memoryCachePolicy(CachePolicy.ENABLED)
                         .diskCachePolicy(CachePolicy.ENABLED)
                         .build()
@@ -1582,7 +1699,10 @@ private fun OcrTextPanel(
 @Composable
 private fun MediaInfoSheet(media: MediaItem, onDismiss: () -> Unit) {
     val context = LocalContext.current
-    val exifInfo = remember(media.uri) { ExifUtils.getExifInfo(context, media.uri) }
+    var exifInfo by remember(media.uri) { mutableStateOf(com.gallery.android.utils.ExifInfo()) }
+    LaunchedEffect(media.uri) {
+        exifInfo = withContext(Dispatchers.IO) { ExifUtils.getExifInfo(context, media.uri) }
+    }
 
     Box(
         modifier = Modifier
@@ -1632,11 +1752,11 @@ private fun MediaInfoSheet(media: MediaItem, onDismiss: () -> Unit) {
                     if (!exifInfo.make.isNullOrBlank() || !exifInfo.model.isNullOrBlank()) {
                         InfoRow("Camera", "${exifInfo.make.orEmpty()} ${exifInfo.model.orEmpty()}".trim())
                     }
-                    if (!exifInfo.aperture.isNullOrBlank()) InfoRow("Aperture", exifInfo.aperture)
-                    if (!exifInfo.focalLength.isNullOrBlank()) InfoRow("Focal Length", exifInfo.focalLength)
+                    if (!exifInfo.aperture.isNullOrBlank()) InfoRow("Aperture", exifInfo.aperture.orEmpty())
+                    if (!exifInfo.focalLength.isNullOrBlank()) InfoRow("Focal Length", exifInfo.focalLength.orEmpty())
                     if (!exifInfo.iso.isNullOrBlank()) InfoRow("ISO", "ISO ${exifInfo.iso}")
-                    if (!exifInfo.exposureTime.isNullOrBlank()) InfoRow("Shutter Speed", exifInfo.exposureTime)
-                    if (!exifInfo.flash.isNullOrBlank()) InfoRow("Flash", exifInfo.flash)
+                    if (!exifInfo.exposureTime.isNullOrBlank()) InfoRow("Shutter Speed", exifInfo.exposureTime.orEmpty())
+                    if (!exifInfo.flash.isNullOrBlank()) InfoRow("Flash", exifInfo.flash.orEmpty())
                 }
 
                 if (exifInfo.latitude != null && exifInfo.longitude != null) {
@@ -1657,3 +1777,14 @@ private fun InfoRow(label: String, value: String) {
         Text(value, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
     }
 }
+
+
+
+
+
+
+
+
+
+
+

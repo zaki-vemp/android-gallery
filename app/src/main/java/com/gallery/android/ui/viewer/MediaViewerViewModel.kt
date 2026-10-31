@@ -11,7 +11,6 @@ import com.gallery.android.domain.model.MediaType
 import com.gallery.android.domain.repository.AlbumRepository
 import com.gallery.android.domain.repository.MediaRepository
 import com.gallery.android.domain.usecase.FavoriteMediaUseCase
-import com.gallery.android.domain.usecase.GetMediaUseCase
 import com.gallery.android.domain.usecase.MoveToTrashUseCase
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
@@ -19,6 +18,7 @@ import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
@@ -26,6 +26,7 @@ import kotlinx.coroutines.withContext
 import javax.inject.Inject
 
 data class ViewerUiState(
+    val preview: MediaItem? = null,
     val mediaList: List<MediaItem> = emptyList(),
     val currentIndex: Int = 0,
     val isLoading: Boolean = true,
@@ -38,7 +39,6 @@ data class ViewerUiState(
 @HiltViewModel
 class MediaViewerViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
-    private val getMediaUseCase: GetMediaUseCase,
     private val favoriteMediaUseCase: FavoriteMediaUseCase,
     private val moveToTrashUseCase: MoveToTrashUseCase,
     private val mediaRepository: MediaRepository,
@@ -50,28 +50,46 @@ class MediaViewerViewModel @Inject constructor(
 
     private val _uiState = MutableStateFlow(ViewerUiState())
     val uiState: StateFlow<ViewerUiState> = _uiState.asStateFlow()
+    private val _openedId = MutableStateFlow(0L)
+    private var openJob: Job? = null
 
-    val customAlbums: StateFlow<List<Album>> = albumRepository.getAlbums()
-        .map { albums -> albums.filter { it.isUserCreated } }
+    val customAlbums: StateFlow<List<Album>> = albumRepository.getUserCreatedAlbums()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    init {
-        viewModelScope.launch {
-            getMediaUseCase.getAll().collect { list ->
+    fun open(mediaId: Long) {
+        if (_openedId.value == mediaId &&
+            (openJob?.isActive == true || _uiState.value.mediaList.any { it.id == mediaId })
+        ) return
+        _openedId.value = mediaId
+        openJob?.cancel()
+        openJob = viewModelScope.launch {
+            val first = mediaRepository.getMediaById(mediaId)
+            if (first != null) {
                 _uiState.update { state ->
-                    state.copy(
-                        mediaList = list,
-                        currentIndex = state.currentIndex.coerceIn(0, list.lastIndex.coerceAtLeast(0)),
-                        isLoading = false,
-                    )
+                    if (state.mediaList.any { it.id == mediaId }) {
+                        state.copy(preview = first)
+                    } else {
+                        state.copy(
+                            preview = first,
+                            mediaList = emptyList(),
+                            currentIndex = 0,
+                            isLoading = true,
+                        )
+                    }
                 }
             }
+            val all = mediaRepository.loadGalleryIndex()
+            val index = all.indexOfFirst { it.id == mediaId }.coerceAtLeast(0)
+            val resolvedList = all.ifEmpty { listOfNotNull(first) }
+            _uiState.update { state ->
+                state.copy(
+                    preview = first ?: state.preview,
+                    mediaList = resolvedList,
+                    currentIndex = index,
+                    isLoading = false,
+                )
+            }
         }
-    }
-
-    fun jumpToMedia(mediaId: Long) {
-        val index = _uiState.value.mediaList.indexOfFirst { it.id == mediaId }
-        if (index >= 0) _uiState.update { it.copy(currentIndex = index) }
     }
 
     fun setCurrentIndex(index: Int) = _uiState.update { state ->

@@ -1,5 +1,6 @@
 package com.gallery.android.ui.search
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -25,6 +26,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.Clear
 import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.Search
@@ -33,6 +35,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -47,6 +50,7 @@ import com.gallery.android.domain.model.MediaCategory
 import com.gallery.android.ui.components.ApertureHeader
 import com.gallery.android.ui.components.GalleryEmptyState
 import com.gallery.android.ui.components.GalleryMotion
+import com.gallery.android.ui.components.HairlineChip
 import com.gallery.android.ui.components.MediaThumbnail
 import com.gallery.android.ui.components.SectionKicker
 import java.util.Locale
@@ -74,14 +78,47 @@ fun SearchScreen(
     val isLoading by viewModel.isLoading.collectAsStateWithLifecycle()
     val selectedCategory by viewModel.selectedCategory.collectAsStateWithLifecycle()
     val moments by viewModel.moments.collectAsStateWithLifecycle()
+    val pendingIndexCount by viewModel.pendingIndexCount.collectAsStateWithLifecycle()
 
+    LaunchedEffect(Unit) { viewModel.ensureIndexing() }
+
+    val browsingResults = query.isNotBlank() || selectedCategory != null
     val displayedResults = when {
         selectedCategory != null -> categoryResults
         query.isNotBlank() -> results
         else -> emptyList()
     }
+
+    BackHandler(enabled = browsingResults) {
+        viewModel.clearSearch()
+    }
+
     Column(modifier = Modifier.fillMaxSize()) {
-        ApertureHeader(title = "Search", subtitle = "On-device index")
+        ApertureHeader(
+            title = if (selectedCategory != null) selectedCategory!!.displayName else "Search",
+            subtitle = if (pendingIndexCount > 0) {
+                "Indexing $pendingIndexCount photos"
+            } else {
+                "On-device vision + text"
+            },
+            actions = {
+                if (browsingResults) {
+                    HairlineChip(onClick = viewModel::clearSearch) {
+                        Icon(
+                            Icons.AutoMirrored.Outlined.ArrowBack,
+                            contentDescription = "Back",
+                            modifier = Modifier.size(14.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Text(
+                            "BACK",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            },
+        )
         Row(
             modifier = Modifier
                 .padding(horizontal = 16.dp)
@@ -111,7 +148,7 @@ fun SearchScreen(
                 decorationBox = { inner ->
                     if (query.isEmpty()) {
                         Text(
-                            "Beach, July, IMG_48…",
+                            text = selectedCategory?.displayName ?: "my wife beside the tree",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -119,14 +156,43 @@ fun SearchScreen(
                     inner()
                 },
             )
-            if (query.isNotEmpty()) {
+            if (browsingResults) {
                 Icon(
                     Icons.Outlined.Clear,
                     contentDescription = "Clear",
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier
                         .size(16.dp)
-                        .clickable(onClick = viewModel::clearQuery),
+                        .clickable(onClick = viewModel::clearSearch),
+                )
+            }
+        }
+
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(7.dp),
+            verticalArrangement = Arrangement.spacedBy(7.dp),
+            modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 8.dp),
+        ) {
+            SearchChips.forEach { (label, category) ->
+                val selected = selectedCategory == category
+                Text(
+                    text = label.uppercase(Locale.getDefault()),
+                    style = MaterialTheme.typography.labelSmall,
+                    letterSpacing = 0.08.em,
+                    color = if (selected) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                    modifier = Modifier
+                        .border(
+                            1.dp,
+                            if (selected) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.outline,
+                            RectangleShape,
+                        )
+                        .clickable { viewModel.selectCategory(category) }
+                        .padding(horizontal = 11.dp, vertical = 6.dp),
                 )
             }
         }
@@ -161,11 +227,11 @@ fun SearchScreen(
                         }
                     }
                 }
-                query.isNotBlank() || selectedCategory != null -> {
+                browsingResults -> {
                     GalleryEmptyState(
                         icon = Icons.Outlined.Search,
                         title = if (query.isNotBlank()) "No results for \"$query\"" else "No matching items",
-                        subtitle = "Try a different search or category",
+                        subtitle = "Tap Back or a chip again to return",
                     )
                 }
                 else -> {
@@ -178,35 +244,7 @@ fun SearchScreen(
                     ) {
                         item(span = { GridItemSpan(maxLineSpan) }) {
                             Column {
-                                FlowRow(
-                                    horizontalArrangement = Arrangement.spacedBy(7.dp),
-                                    verticalArrangement = Arrangement.spacedBy(7.dp),
-                                    modifier = Modifier.padding(top = 14.dp),
-                                ) {
-                                    SearchChips.forEach { (label, category) ->
-                                        val selected = selectedCategory == category && query.isBlank()
-                                        Text(
-                                            text = label.uppercase(Locale.getDefault()),
-                                            style = MaterialTheme.typography.labelSmall,
-                                            letterSpacing = 0.08.em,
-                                            color = if (selected) {
-                                                MaterialTheme.colorScheme.primary
-                                            } else {
-                                                MaterialTheme.colorScheme.onSurfaceVariant
-                                            },
-                                            modifier = Modifier
-                                                .border(
-                                                    1.dp,
-                                                    if (selected) MaterialTheme.colorScheme.primary
-                                                    else MaterialTheme.colorScheme.outline,
-                                                    RectangleShape,
-                                                )
-                                                .clickable { viewModel.selectCategory(category) }
-                                                .padding(horizontal = 11.dp, vertical = 6.dp),
-                                        )
-                                    }
-                                }
-                                SectionKicker("People")
+                                SectionKicker("People", modifier = Modifier.padding(top = 4.dp, bottom = 10.dp))
                                 LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                                     items(PeopleShortcuts) { name ->
                                         Column(horizontalAlignment = Alignment.CenterHorizontally) {

@@ -22,7 +22,7 @@ import com.gallery.android.data.local.entity.OcrMetadataEntity
         FavoriteEntity::class,
         OcrMetadataEntity::class,
     ],
-    version = 2,
+    version = 4,
     exportSchema = false,
 )
 abstract class GalleryDatabase : RoomDatabase() {
@@ -47,6 +47,19 @@ abstract class GalleryDatabase : RoomDatabase() {
                 database.execSQL(
                     "CREATE INDEX IF NOT EXISTS index_ocr_metadata_mediaId ON ocr_metadata(mediaId)"
                 )
+            }
+        }
+
+        val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("ALTER TABLE ocr_metadata ADD COLUMN labels TEXT NOT NULL DEFAULT ''")
+                database.execSQL("ALTER TABLE ocr_metadata ADD COLUMN sourceModified INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
+        val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("ALTER TABLE ocr_metadata ADD COLUMN concepts TEXT NOT NULL DEFAULT ''")
             }
         }
     }

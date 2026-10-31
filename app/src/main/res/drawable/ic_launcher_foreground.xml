@@ -4,7 +4,49 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
+
+    <!-- Outer lens ring -->
     <path
-        android:fillColor="#FFFFFF"
-        android:pathData="M54,30C40.7,30 30,40.7 30,54C30,67.3 40.7,78 54,78C67.3,78 78,67.3 78,54C78,40.7 67.3,30 54,30ZM54,72C44,72 36,64 36,54C36,44 44,36 54,36C64,36 72,44 72,54C72,64 64,72 54,72ZM54,42C47.4,42 42,47.4 42,54C42,60.6 47.4,66 54,66C60.6,66 66,60.6 66,54C66,47.4 60.6,42 54,42Z"/>
+        android:fillColor="#6EC4D6"
+        android:fillType="evenOdd"
+        android:pathData="M54,30A24,24 0 1,1 53.99,30Z M54,35.5A18.5,18.5 0 1,1 53.99,35.5Z" />
+
+    <!-- Aperture blades -->
+    <path
+        android:fillColor="#C8EAF1"
+        android:pathData="M54,38.5 L61.2,50.2 L54,47.2 Z" />
+    <path
+        android:fillColor="#A7DCE8"
+        android:pathData="M61.2,50.2 L61.2,57.8 L54,47.2 Z" />
+    <path
+        android:fillColor="#C8EAF1"
+        android:pathData="M61.2,57.8 L54,69.5 L54,47.2 Z" />
+    <path
+        android:fillColor="#7BBFD0"
+        android:pathData="M54,69.5 L46.8,57.8 L54,47.2 Z" />
+    <path
+        android:fillColor="#A7DCE8"
+        android:pathData="M46.8,57.8 L46.8,50.2 L54,47.2 Z" />
+    <path
+        android:fillColor="#7BBFD0"
+        android:pathData="M46.8,50.2 L54,38.5 L54,47.2 Z" />
+
+    <!-- Inner opening -->
+    <path
+        android:fillColor="#0B1014"
+        android:pathData="M54,51.2 L57.4,53.2 L57.4,56.8 L54,58.8 L50.6,56.8 L50.6,53.2 Z" />
+
+    <!-- Viewfinder ticks -->
+    <path
+        android:fillColor="#6EC4D6"
+        android:pathData="M32,32h10v2.4H34.4V42H32Z" />
+    <path
+        android:fillColor="#6EC4D6"
+        android:pathData="M66,32h10v10h-2.4V34.4H66Z" />
+    <path
+        android:fillColor="#6EC4D6"
+        android:pathData="M32,66h2.4v7.6H42V76H32Z" />
+    <path
+        android:fillColor="#6EC4D6"
+        android:pathData="M66,73.6h7.6V66H76v10H66Z" />
 </vector>

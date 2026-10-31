@@ -19,6 +19,7 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import com.gallery.android.nativeengine.NativeMediaEngine
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -188,11 +189,20 @@ class ImageEditorViewModel @Inject constructor(
 
         // Apply color adjustments + filter
         val colorMatrix = buildColorMatrix(editState)
-        val output = Bitmap.createBitmap(bmp.width, bmp.height, Bitmap.Config.ARGB_8888)
+        val working = if (bmp.config != Bitmap.Config.ARGB_8888 || !bmp.isMutable) {
+            bmp.copy(Bitmap.Config.ARGB_8888, true) ?: bmp
+        } else {
+            bmp
+        }
+        if (NativeMediaEngine.isAvailable &&
+            NativeMediaEngine.applyColorMatrix(working, colorMatrix.array.copyOf())
+        ) {
+            return working
+        }
+        val output = Bitmap.createBitmap(working.width, working.height, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(output)
         val paint = Paint().apply { colorFilter = ColorMatrixColorFilter(colorMatrix) }
-        canvas.drawBitmap(bmp, 0f, 0f, paint)
-
+        canvas.drawBitmap(working, 0f, 0f, paint)
         return output
     }
 
@@ -324,6 +334,12 @@ class ImageEditorViewModel @Inject constructor(
     }
 
     private fun decodeBitmapSampled(context: Context, uri: Uri, reqWidth: Int, reqHeight: Int): Bitmap? {
+        val native = runCatching {
+            context.contentResolver.openFileDescriptor(uri, "r")?.use { pfd ->
+                NativeMediaEngine.decodeThumbnail(pfd, maxOf(reqWidth, reqHeight))
+            }
+        }.getOrNull()
+        if (native != null) return native
         return runCatching {
             val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
             context.contentResolver.openInputStream(uri)?.use {

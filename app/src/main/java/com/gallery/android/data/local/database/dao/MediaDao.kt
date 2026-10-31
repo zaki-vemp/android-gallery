@@ -84,4 +84,28 @@ interface MediaDao {
 
     @Query("SELECT * FROM media WHERE isInTrash = 0 AND isInSafe = 0 ORDER BY dateAdded DESC")
     suspend fun getAllMediaList(): List<MediaEntity>
+
+    @Query("SELECT id FROM media WHERE isInTrash = 1 OR isInSafe = 1")
+    fun observeHiddenIds(): Flow<List<Long>>
+
+    @Query("SELECT id FROM media WHERE isFavorite = 1 AND isInTrash = 0 AND isInSafe = 0")
+    fun observeFavoriteIds(): Flow<List<Long>>
+
+    @Query("SELECT id FROM media WHERE isInTrash = 1 OR isInSafe = 1")
+    suspend fun getHiddenIds(): List<Long>
+
+    @Query("SELECT id FROM media WHERE isFavorite = 1 AND isInTrash = 0 AND isInSafe = 0")
+    suspend fun getFavoriteIds(): List<Long>
+
+    @Query("SELECT * FROM media WHERE id IN (:ids)")
+    suspend fun getByIds(ids: List<Long>): List<MediaEntity>
+
+    @Query("DELETE FROM media WHERE isInSafe = 0 AND isInTrash = 0 AND id NOT IN (:ids)")
+    suspend fun deleteMissingVisible(ids: List<Long>)
+
+    @Query("SELECT id FROM media WHERE isInSafe = 1")
+    suspend fun getSafeIds(): List<Long>
+
+    @Query("DELETE FROM media WHERE id IN (:ids)")
+    suspend fun deleteByIds(ids: List<Long>)
 }

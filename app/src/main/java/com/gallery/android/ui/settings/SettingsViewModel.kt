@@ -5,15 +5,25 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
+import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
+object ThemeMode {
+    const val SYSTEM = "system"
+    const val LIGHT = "light"
+    const val DARK = "dark"
+}
+
 data class SettingsUiState(
-    val isDarkTheme: Boolean = true,
+    val themeMode: String = ThemeMode.SYSTEM,
     val useDynamicColor: Boolean = false,
     val gridColumns: Int = 3,
 )
@@ -23,33 +33,38 @@ class SettingsViewModel @Inject constructor(
     private val dataStore: DataStore<Preferences>,
 ) : ViewModel() {
 
-    private val DARK_THEME_KEY = booleanPreferencesKey("dark_theme")
-    private val DYNAMIC_COLOR_KEY = booleanPreferencesKey("dynamic_color")
-    private val GRID_COLUMNS_KEY = intPreferencesKey("grid_columns")
+    private val themeModeKey = stringPreferencesKey("theme_mode")
+    private val darkThemeKey = booleanPreferencesKey("dark_theme")
+    private val dynamicColorKey = booleanPreferencesKey("dynamic_color")
+    private val gridColumnsKey = intPreferencesKey("grid_columns")
 
     val uiState: StateFlow<SettingsUiState> = dataStore.data.map { prefs ->
         SettingsUiState(
-            isDarkTheme = prefs[DARK_THEME_KEY] ?: true,
-            useDynamicColor = prefs[DYNAMIC_COLOR_KEY] ?: false,
-            gridColumns = prefs[GRID_COLUMNS_KEY] ?: 3,
+            themeMode = prefs[themeModeKey] ?: when (prefs[darkThemeKey]) {
+                true -> ThemeMode.DARK
+                false -> ThemeMode.LIGHT
+                null -> ThemeMode.SYSTEM
+            },
+            useDynamicColor = prefs[dynamicColorKey] ?: false,
+            gridColumns = prefs[gridColumnsKey] ?: 3,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), SettingsUiState())
 
-    fun setDarkTheme(enabled: Boolean) {
+    fun setThemeMode(mode: String) {
         viewModelScope.launch {
-            dataStore.edit { it[DARK_THEME_KEY] = enabled }
+            dataStore.edit { it[themeModeKey] = mode }
         }
     }
 
     fun setDynamicColor(enabled: Boolean) {
         viewModelScope.launch {
-            dataStore.edit { it[DYNAMIC_COLOR_KEY] = enabled }
+            dataStore.edit { it[dynamicColorKey] = enabled }
         }
     }
 
     fun setGridColumns(columns: Int) {
         viewModelScope.launch {
-            dataStore.edit { it[GRID_COLUMNS_KEY] = columns }
+            dataStore.edit { it[gridColumnsKey] = columns }
         }
     }
 }

@@ -19,25 +19,25 @@ import androidx.compose.ui.composed
 import androidx.compose.ui.graphics.graphicsLayer
 
 object GalleryMotion {
-    val Fast = tween<Float>(durationMillis = 180, easing = FastOutSlowInEasing)
-    val Medium = tween<Float>(durationMillis = 280, easing = FastOutSlowInEasing)
+    val Fast = tween<Float>(durationMillis = 260, easing = FastOutSlowInEasing)
+    val Medium = tween<Float>(durationMillis = 380, easing = FastOutSlowInEasing)
     val SoftBounce = spring<Float>(
-        dampingRatio = 0.72f,
-        stiffness = Spring.StiffnessMedium,
+        dampingRatio = 0.92f,
+        stiffness = Spring.StiffnessVeryLow,
     )
     val Placement = spring<IntOffset>(
-        dampingRatio = 0.85f,
-        stiffness = Spring.StiffnessMediumLow,
+        dampingRatio = 0.92f,
+        stiffness = Spring.StiffnessVeryLow,
     )
-    const val NavEnterMs = 320
-    const val NavExitMs = 220
+    const val NavEnterMs = 420
+    const val NavExitMs = 300
 }
 
 /**
  * Scale-on-press driven by pointer down/up — works alongside combinedClickable.
  */
 fun Modifier.scaleOnPress(
-    pressedScale: Float = 0.96f,
+    pressedScale: Float = 0.985f,
 ): Modifier = composed {
     var pressed by remember { mutableStateOf(false) }
     val scale by animateFloatAsState(
@@ -65,7 +65,7 @@ fun Modifier.scaleOnPress(
 @Composable
 fun animateSelectionScale(selected: Boolean): Float {
     val scale by animateFloatAsState(
-        targetValue = if (selected) 0.92f else 1f,
+        targetValue = if (selected) 0.97f else 1f,
         animationSpec = GalleryMotion.SoftBounce,
         label = "selectionScale",
     )

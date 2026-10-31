@@ -18,6 +18,7 @@
 -keepnames class kotlinx.coroutines.CoroutineExceptionHandler {}
 -keepclassmembernames class kotlinx.** { volatile <fields>; }
 
-# Model classes
--keep class com.gallery.android.domain.model.** { *; }
--keep class com.gallery.android.data.local.entity.** { *; }
+# TensorFlow Lite
+-keep class org.tensorflow.lite.** { *; }
+-dontwarn org.tensorflow.lite.**
+
